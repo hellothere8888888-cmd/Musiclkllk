@@ -11,6 +11,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Needed by the tag-triggered release step; harmless for ordinary CI runs.
+permissions:
+  contents: write
+
 env:
   ORT_VERSION: "1.20.1"
 

@@ -7,6 +7,7 @@
 #include "Identifiers.h"
 #include "model/SessionState.h"
 #include "model/EngineSnapshot.h"
+#include "engine/SamplerEngine.h"
 #include "dsp/TransientDetector.h"
 #include "dsp/Resampler.h"
 #include "stems/StemSeparator.h"
@@ -231,6 +232,109 @@ void testSnapshotExchange()
     ex.collectTrash();
 }
 
+// ---- engine playback end-to-end -----------------------------------------
+// Trigger -> voice -> varispeed -> output. Exercises the real audio path.
+void testEnginePlayback()
+{
+    std::printf ("testEnginePlayback\n");
+    using namespace pablo;
+
+    // A loud stereo tone we can detect at the output.
+    const int len = 4096;
+    auto buffer = std::make_shared<juce::AudioBuffer<float>> (2, len);
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        auto* w = buffer->getWritePointer (ch);
+        for (int i = 0; i < len; ++i)
+            w[i] = 0.7f * std::sin (juce::MathConstants<float>::twoPi * 200.0f * (float) i / 44100.0f);
+    }
+
+    auto makeSnapshot = [&] (float pitch, bool reverse)
+    {
+        auto snap = std::make_unique<EngineSnapshot>();
+        TrackPlayInfo t;
+        t.buffer = buffer;
+        t.sourceSampleRate = 44100.0;
+        t.gain = 1.0f;
+        t.chops.push_back ({ 0, len, pitch, reverse });
+        snap->tracks.push_back (std::move (t));
+        snap->activeTrack = 0;
+        return snap;
+    };
+
+    auto renderMagnitude = [] (SamplerEngine& engine, SnapshotExchange& ex)
+    {
+        juce::AudioBuffer<float> out (2, 512);
+        juce::MidiBuffer midi;
+        SamplerEngine::Params p;                 // 0 dB, unity, choke on
+        float mag = 0.0f;
+        for (int block = 0; block < 4; ++block)  // let fades/gain settle
+        {
+            out.clear();
+            engine.process (out, midi, ex.acquire(), p);
+            mag = juce::jmax (mag, out.getMagnitude (0, out.getNumSamples()));
+        }
+        return mag;
+    };
+
+    // Silence before any trigger.
+    {
+        SnapshotExchange ex;
+        ex.publish (makeSnapshot (0.0f, false));
+        SamplerEngine engine;
+        engine.prepare (44100.0, 512);
+        CHECK (renderMagnitude (engine, ex) < 1.0e-6f);
+    }
+
+    // Forward playback produces sound.
+    {
+        SnapshotExchange ex;
+        ex.publish (makeSnapshot (0.0f, false));
+        SamplerEngine engine;
+        engine.prepare (44100.0, 512);
+        engine.triggerFromUI (0, 0, true);
+        CHECK (renderMagnitude (engine, ex) > 0.1f);
+    }
+
+    // Reverse playback also produces sound (same energy, different direction).
+    {
+        SnapshotExchange ex;
+        ex.publish (makeSnapshot (0.0f, true));
+        SamplerEngine engine;
+        engine.prepare (44100.0, 512);
+        engine.triggerFromUI (0, 0, true);
+        CHECK (renderMagnitude (engine, ex) > 0.1f);
+    }
+
+    // Pitching up an octave (2x rate) still plays and stays bounded (no NaNs).
+    {
+        SnapshotExchange ex;
+        ex.publish (makeSnapshot (12.0f, false));
+        SamplerEngine engine;
+        engine.prepare (44100.0, 512);
+        engine.triggerFromUI (0, 0, true);
+        const float mag = renderMagnitude (engine, ex);
+        CHECK (mag > 0.1f && mag < 2.0f);
+    }
+
+    // A pad flash was recorded for the message thread.
+    {
+        SnapshotExchange ex;
+        ex.publish (makeSnapshot (0.0f, false));
+        SamplerEngine engine;
+        engine.prepare (44100.0, 512);
+        engine.triggerFromUI (0, 0, true);
+        juce::AudioBuffer<float> out (2, 512);
+        juce::MidiBuffer midi;
+        SamplerEngine::Params p;
+        engine.process (out, midi, ex.acquire(), p);
+        auto flashes = engine.drainFlashes();
+        CHECK (! flashes.empty());
+        if (! flashes.empty())
+            CHECK (flashes[0].first == 0 && flashes[0].second == 0);
+    }
+}
+
 // ---- full session state round trip --------------------------------------
 void testSessionRoundTrip()
 {
@@ -298,6 +402,7 @@ int main()
     testResampler();
     testOverlapAddWeighting();
     testSnapshotExchange();
+    testEnginePlayback();
     testSessionRoundTrip();
 
     std::printf ("\n%d checks, %d failures\n", g_checks, g_failures);
