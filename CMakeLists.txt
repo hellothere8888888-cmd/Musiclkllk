@@ -14,6 +14,12 @@ if(PABLO_ENABLE_STEMS)
     include(cmake/FetchOrtHeaders.cmake)
 endif()
 
+# The model downloader uses juce::URL over HTTPS. On Linux/macOS that needs
+# libcurl (JUCE_USE_CURL=1); on Windows JUCE uses WinInet, so curl is off there.
+if(NOT WIN32)
+    find_package(CURL REQUIRED)
+endif()
+
 # ---------------------------------------------------------------------------
 # Shared engine/model/dsp/stem sources. These are compiled directly into each
 # final target (plugin + tests) so JUCE module unity files are only compiled
@@ -39,15 +45,22 @@ set(PABLO_CORE_JUCE_LIBS
 )
 
 function(pablo_configure_common target)
-    target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    # PROJECT_SOURCE_DIR (not CMAKE_CURRENT_SOURCE_DIR) so this is correct when
+    # called from the tests/ subdirectory too.
+    target_include_directories(${target} PRIVATE ${PROJECT_SOURCE_DIR}/src)
     target_compile_definitions(${target} PUBLIC
         JUCE_WEB_BROWSER=0
-        JUCE_USE_CURL=1
         JUCE_VST3_CAN_REPLACE_VST2=0
         JUCE_DISPLAY_SPLASH_SCREEN=0
         JUCE_MODAL_LOOPS_PERMITTED=1
         $<$<BOOL:${PABLO_ENABLE_STEMS}>:PABLO_ENABLE_STEMS=1>
     )
+    if(WIN32)
+        target_compile_definitions(${target} PUBLIC JUCE_USE_CURL=0)
+    else()
+        target_compile_definitions(${target} PUBLIC JUCE_USE_CURL=1)
+        target_link_libraries(${target} PRIVATE CURL::libcurl)
+    endif()
     if(PABLO_ENABLE_STEMS)
         target_include_directories(${target} PRIVATE ${PABLO_ORT_INCLUDE_DIR})
     endif()

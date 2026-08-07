@@ -38,9 +38,12 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    juce::AudioProcessorValueTreeState apvts;
+    // Declaration order matters: exchange feeds session, and apvts's
+    // constructor uses session.getUndoManager(), so both must be constructed
+    // first (members initialise in declaration order, not init-list order).
     SnapshotExchange exchange;
     SessionState session { exchange };
+    juce::AudioProcessorValueTreeState apvts;
     SamplerEngine engine;
     Recorder recorder;
     StemSeparator separator;

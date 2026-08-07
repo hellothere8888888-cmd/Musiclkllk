@@ -9,6 +9,9 @@ namespace pablo
 class ModelManager
 {
 public:
+    ModelManager();
+    ~ModelManager();      // defined in .cpp where Listener is complete
+
     static juce::File getModelDirectory();
     static juce::File getModelFile();          // preferred (possibly downloaded) model
     static juce::File getUserModelFile();      // user-supplied override, if present

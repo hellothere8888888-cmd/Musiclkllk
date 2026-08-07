@@ -1,4 +1,5 @@
 #include "ModelManager.h"
+#include <juce_events/juce_events.h>
 
 namespace pablo
 {
@@ -72,6 +73,11 @@ public:
 private:
     ModelManager& owner;
 };
+
+// Defined here (not in the header) so unique_ptr<Listener>'s destructor sees a
+// complete Listener type.
+ModelManager::ModelManager() = default;
+ModelManager::~ModelManager() = default;
 
 bool ModelManager::startDownload (std::function<void (float)> onProgress,
                                   std::function<void (bool, juce::String)> onFinished)

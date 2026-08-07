@@ -17,7 +17,7 @@ inline const juce::Colour creamDim    { 0xffe4d8c4 };
 inline juce::Typeface::Ptr getMarkerTypeface()
 {
     static juce::Typeface::Ptr tf = juce::Typeface::createSystemTypefaceFor (
-        BinaryData::PermanentMarker_Regular_ttf, BinaryData::PermanentMarker_Regular_ttfSize);
+        BinaryData::PermanentMarkerRegular_ttf, BinaryData::PermanentMarkerRegular_ttfSize);
     return tf;
 }
 
