@@ -9,8 +9,6 @@ into stems (drums / bass / other / vocals) with an on-device AI model.
 > You don't need to compile anything. Download the pre-built plugin from the
 > latest CI run or release (see **Install** below).
 
-![TLOP-styled sampler](docs/screenshot.png)
-
 ## Features
 
 - **Multiple sample tracks**, MPC-style — add as many as you like via the `+`
