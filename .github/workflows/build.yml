@@ -28,6 +28,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Load the MSVC toolchain into the environment and build with Ninja.
+      # This is more reliable on GitHub runners than relying on CMake's
+      # Visual Studio generator auto-detection.
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up Ninja
+        run: choco install ninja -y --no-progress
+
       - name: Cache CMake dependencies (JUCE + ORT headers)
         uses: actions/cache@v4
         with:
@@ -35,10 +46,10 @@ jobs:
           key: win-deps-${{ hashFiles('cmake/*.cmake', 'CMakeLists.txt') }}
 
       - name: Configure
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DPABLO_BUILD_TESTS=OFF
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPABLO_BUILD_TESTS=OFF
 
       - name: Build
-        run: cmake --build build --config Release --target PabloSampler_VST3 --parallel
+        run: cmake --build build --target PabloSampler_VST3 --parallel
 
       - name: Download ONNX Runtime (Windows x64)
         shell: pwsh
