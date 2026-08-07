@@ -335,6 +335,70 @@ void testEnginePlayback()
     }
 }
 
+// ---- track removal keeps the right track active -------------------------
+void testRemoveTrackActiveIndex()
+{
+    std::printf ("testRemoveTrackActiveIndex\n");
+    using namespace pablo;
+
+    SnapshotExchange ex;
+    SessionState session (ex);
+
+    auto add = [&] (const char* name)
+    {
+        auto b = std::make_unique<juce::AudioBuffer<float>> (1, 1000);
+        b->clear();
+        session.addTrackFromBuffer (name, std::move (b), 44100.0);
+    };
+    add ("A"); add ("B"); add ("C");
+    CHECK (session.getNumTracks() == 3);
+
+    session.setActiveTrackIndex (2);                 // C
+    session.removeTrack (0);                          // remove A
+    CHECK (session.getNumTracks() == 2);
+    CHECK (session.getActiveTrack().getName() == "C");// still C, now at index 1
+
+    session.removeTrack (1);                          // remove active (C) from [B,C]
+    CHECK (session.getNumTracks() == 1);
+    CHECK (session.getActiveTrack().getName() == "B");// only B remains, now active
+}
+
+// ---- restore clears audio from a prior session --------------------------
+void testRestoreClearsStore()
+{
+    std::printf ("testRestoreClearsStore\n");
+    using namespace pablo;
+
+    SnapshotExchange ex;
+    SessionState session (ex);
+
+    auto b = std::make_unique<juce::AudioBuffer<float>> (1, 2000);
+    for (int i = 0; i < 2000; ++i) b->setSample (0, i, 0.5f);
+    auto trackA = session.addTrackFromBuffer ("A", std::move (b), 44100.0);
+    const int uidA = trackA.getUid();
+    CHECK (session.getTrackBuffer (trackA) != nullptr);
+
+    // A saved tree whose single track reuses the same uid but has no
+    // recoverable audio (no file, no embedded FLAC).
+    juce::ValueTree saved (id::SESSION);
+    saved.setProperty (id::activeTrack, 0, nullptr);
+    juce::ValueTree tr (id::TRACK);
+    tr.setProperty (id::uid, uidA, nullptr);
+    tr.setProperty (id::name, "B", nullptr);
+    tr.setProperty (id::sampleRate, 44100.0, nullptr);
+    tr.setProperty (id::lengthSamples, (juce::int64) 2000, nullptr);
+    tr.setProperty (id::filePath, "/no/such/file.wav", nullptr);
+    tr.appendChild (juce::ValueTree (id::CHOPS), nullptr);
+    saved.appendChild (tr, nullptr);
+
+    session.restoreFromSaveTree (saved);
+    CHECK (session.getNumTracks() == 1);
+    auto restored = session.getTrack (0);
+    CHECK (restored.getName() == "B");
+    // Must be "missing", NOT serving track A's stale audio for the reused uid.
+    CHECK (session.getTrackBuffer (restored) == nullptr);
+}
+
 // ---- full session state round trip --------------------------------------
 void testSessionRoundTrip()
 {
@@ -403,6 +467,8 @@ int main()
     testOverlapAddWeighting();
     testSnapshotExchange();
     testEnginePlayback();
+    testRemoveTrackActiveIndex();
+    testRestoreClearsStore();
     testSessionRoundTrip();
 
     std::printf ("\n%d checks, %d failures\n", g_checks, g_failures);

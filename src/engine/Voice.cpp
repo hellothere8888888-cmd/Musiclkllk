@@ -4,10 +4,22 @@ namespace pablo
 {
 static constexpr float fadeSeconds = 0.003f;
 
-void Voice::prepare (double hostSampleRate)
+void Voice::prepare (double hostSampleRate, BufferReleasePool* pool)
 {
     hostRate = hostSampleRate;
+    releasePool = pool;
     active = false;
+}
+
+void Voice::releaseSource()
+{
+    if (source == nullptr)
+        return;
+    // Hand the buffer to the message thread; only free here (rare) if the pool
+    // is absent or momentarily full.
+    if (releasePool == nullptr || ! releasePool->retire (std::move (source)))
+        source = nullptr;
+    // On a successful retire, source was moved-from and is already null.
 }
 
 void Voice::start (std::shared_ptr<const juce::AudioBuffer<float>> buffer,
@@ -19,6 +31,11 @@ void Voice::start (std::shared_ptr<const juce::AudioBuffer<float>> buffer,
 {
     if (buffer == nullptr || chop.end <= chop.start)
         return;
+
+    // If this voice was stolen while still holding a buffer, retire the old one
+    // rather than letting the assignment below free it on the audio thread.
+    if (source != nullptr)
+        releaseSource();
 
     source = std::move (buffer);
     regionStart = chop.start;
@@ -84,7 +101,7 @@ void Voice::render (juce::AudioBuffer<float>& out, int startSample, int numSampl
         if (pos < (double) regionStart || pos >= (double) regionEnd)
         {
             active = false;
-            source = nullptr;
+            releaseSource();
             return;
         }
 
@@ -93,7 +110,7 @@ void Voice::render (juce::AudioBuffer<float>& out, int startSample, int numSampl
         else if (fadeInc < 0.0f && fadeGain <= 0.0f)
         {
             active = false;
-            source = nullptr;
+            releaseSource();
             return;
         }
 

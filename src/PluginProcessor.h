@@ -9,7 +9,8 @@
 
 namespace pablo
 {
-class PabloAudioProcessor : public juce::AudioProcessor
+class PabloAudioProcessor : public juce::AudioProcessor,
+                            private juce::Timer
 {
 public:
     PabloAudioProcessor();
@@ -50,6 +51,8 @@ public:
     ModelManager modelManager;
 
 private:
+    void timerCallback() override;   // message thread: reclaim retired buffers
+
     std::atomic<float>* masterGainParam = nullptr;
     std::atomic<float>* globalPitchParam = nullptr;
     std::atomic<float>* chokeParam = nullptr;
@@ -57,6 +60,7 @@ private:
     std::atomic<float>* baseNoteParam = nullptr;
     int recordingCounter = 0;
 
+    JUCE_DECLARE_WEAK_REFERENCEABLE (PabloAudioProcessor)
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PabloAudioProcessor)
 };
 } // namespace pablo

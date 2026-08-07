@@ -253,23 +253,28 @@ void PabloAudioEditor::requestStemSplit()
             stemOverlay.update ("Downloading model...", 0.0f);
             updateSplitAvailability();
 
+            juce::Component::SafePointer<PabloAudioEditor> safe (this);
             processor.modelManager.startDownload (
-                [this] (float progress)
+                [safe] (float progress)
                 {
-                    stemOverlay.update ("Downloading model (" + juce::String ((int) (progress * 100)) + "%)",
-                                        progress * 0.98f);
+                    if (auto* self = safe.getComponent())
+                        self->stemOverlay.update ("Downloading model (" + juce::String ((int) (progress * 100)) + "%)",
+                                                  progress * 0.98f);
                 },
-                [this] (bool success, juce::String message)
+                [safe] (bool success, juce::String message)
                 {
-                    downloading = false;
+                    auto* self = safe.getComponent();
+                    if (self == nullptr)
+                        return;   // editor closed during download
+                    self->downloading = false;
                     if (success)
                     {
-                        startSeparation();
+                        self->startSeparation();
                     }
                     else
                     {
-                        stemOverlay.setVisible (false);
-                        updateSplitAvailability();
+                        self->stemOverlay.setVisible (false);
+                        self->updateSplitAvailability();
                         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
                                                                 "Stem split", message);
                     }
@@ -289,14 +294,21 @@ void PabloAudioEditor::startSeparation()
     stemOverlay.update ("Starting...", 0.0f);
     updateSplitAvailability();
 
+    // The separator outlives the editor; the editor is always destroyed before
+    // the processor, so a SafePointer guard covers both closing mid-run.
+    juce::Component::SafePointer<PabloAudioEditor> safe (this);
     processor.separator.separate (*buffer, track.getSampleRate(),
-        [this, baseName] (StemSeparator::Result result)
+        [safe, baseName] (StemSeparator::Result result)
         {
-            stemOverlay.setVisible (false);
+            auto* self = safe.getComponent();
+            if (self == nullptr)
+                return;   // editor closed while separating
+
+            self->stemOverlay.setVisible (false);
 
             if (! result.success)
             {
-                updateSplitAvailability();
+                self->updateSplitAvailability();
                 if (result.message != "Cancelled")
                     juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
                                                             "Stem split failed", result.message);
@@ -304,7 +316,7 @@ void PabloAudioEditor::startSeparation()
             }
 
             for (size_t i = 0; i < result.stems.size(); ++i)
-                processor.session.addTrackFromBuffer (
+                self->processor.session.addTrackFromBuffer (
                     baseName + " · " + (i < result.stemNames.size() ? result.stemNames[i]
                                                                     : "stem " + juce::String ((int) i + 1)),
                     std::move (result.stems[i]), result.sampleRate);

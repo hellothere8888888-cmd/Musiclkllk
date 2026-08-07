@@ -43,18 +43,23 @@ public:
 
     void finished (juce::URL::DownloadTask* t, bool success) override
     {
-        juce::MessageManager::callAsync ([&owner = owner, success, length = t->getTotalLength()]
+        // Guard against the ModelManager being destroyed before this async runs.
+        juce::WeakReference<ModelManager> weak (&owner);
+        juce::MessageManager::callAsync ([weak, success, length = t->getTotalLength()]
         {
-            owner.task.reset();
+            auto* owner = weak.get();
+            if (owner == nullptr)
+                return;
+            owner->task.reset();
             if (success && length > 10 * 1024 * 1024)
             {
-                if (owner.finishedCb)
-                    owner.finishedCb (true, "Model downloaded");
+                if (owner->finishedCb)
+                    owner->finishedCb (true, "Model downloaded");
                 return;
             }
-            owner.getModelDirectory().getChildFile (modelFileName).deleteFile();
-            owner.urlIndex++;
-            owner.tryNextUrl();
+            owner->getModelDirectory().getChildFile (modelFileName).deleteFile();
+            owner->urlIndex++;
+            owner->tryNextUrl();
         });
     }
 
@@ -63,10 +68,12 @@ public:
         if (total <= 0)
             return;
         const float p = (float) downloaded / (float) total;
-        juce::MessageManager::callAsync ([&owner = owner, p]
+        juce::WeakReference<ModelManager> weak (&owner);
+        juce::MessageManager::callAsync ([weak, p]
         {
-            if (owner.progressCb)
-                owner.progressCb (p);
+            if (auto* owner = weak.get())
+                if (owner->progressCb)
+                    owner->progressCb (p);
         });
     }
 

@@ -38,5 +38,7 @@ private:
     void tryNextUrl();
     std::function<void (float)> progressCb;
     std::function<void (bool, juce::String)> finishedCb;
+
+    JUCE_DECLARE_WEAK_REFERENCEABLE (ModelManager)
 };
 } // namespace pablo

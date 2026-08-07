@@ -19,9 +19,21 @@ PabloAudioProcessor::PabloAudioProcessor()
     {
         session.addTrackFromBuffer ("REC " + juce::String (++recordingCounter), std::move (buffer), sr);
     };
+
+    // Pump the engine's buffer-release pool on the message thread so buffers
+    // retired by finished voices are freed here, never on the audio thread.
+    startTimerHz (8);
 }
 
-PabloAudioProcessor::~PabloAudioProcessor() = default;
+PabloAudioProcessor::~PabloAudioProcessor()
+{
+    stopTimer();
+}
+
+void PabloAudioProcessor::timerCallback()
+{
+    engine.reclaimBuffers();
+}
 
 void PabloAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
@@ -95,9 +107,19 @@ void PabloAudioProcessor::setStateInformation (const void* data, int sizeInBytes
     };
 
     if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
         apply();
+    }
     else
-        juce::MessageManager::callAsync (apply);
+    {
+        // Guard against the processor being destroyed before the async runs.
+        juce::WeakReference<PabloAudioProcessor> weak (this);
+        juce::MessageManager::callAsync ([weak, apply]
+        {
+            if (weak.get() != nullptr)
+                apply();
+        });
+    }
 }
 } // namespace pablo
 

@@ -37,6 +37,10 @@ public:
     // Returns pairs of (track, chop).
     std::vector<std::pair<int, int>> drainFlashes();
 
+    // Message thread: frees buffers retired by finished voices. Must be pumped
+    // periodically (the processor runs a timer for this).
+    void reclaimBuffers() { releasePool.reclaim(); }
+
 private:
     void startChop (const EngineSnapshot& snap, int track, int chop, const Params& params);
     void stopChop (int track, int chop);
@@ -54,5 +58,6 @@ private:
 
     juce::SmoothedValue<float> masterGain;
     double hostRate = 44100.0;
+    BufferReleasePool releasePool;
 };
 } // namespace pablo

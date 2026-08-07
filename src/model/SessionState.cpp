@@ -49,14 +49,17 @@ juce::ValueTree SessionState::createTrackTree (const juce::String& name, juce::i
 
 void SessionState::addTrackFromFile (const juce::File& file, std::function<void (bool)> onDone)
 {
-    juce::Thread::launch ([this, safeThis = juce::WeakReference<SessionState> (this), file, onDone]
+    juce::Thread::launch ([safeThis = juce::WeakReference<SessionState> (this), file, onDone]
     {
         std::unique_ptr<juce::AudioBuffer<float>> buffer;
         double sr = 44100.0;
 
-        // The format manager is only used from this one loader thread at a
-        // time in practice; createReaderFor is stateless per call.
-        if (auto reader = std::unique_ptr<juce::AudioFormatReader> (formatManager.createReaderFor (file)))
+        // Use a local format manager so the background thread never touches
+        // 'this' (which may be destroyed mid-read); the member is only used on
+        // the message thread. Registration is cheap.
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+        if (auto reader = std::unique_ptr<juce::AudioFormatReader> (fm.createReaderFor (file)))
         {
             const auto len = (int) juce::jmin<juce::int64> (reader->lengthInSamples, 60ll * 10 * (juce::int64) reader->sampleRate);
             const auto numCh = juce::jmin (2, (int) reader->numChannels);
@@ -118,9 +121,16 @@ void SessionState::removeTrack (int index)
     if (! t.isValid())
         return;
     const int uid = t.getUid();
+    const int active = getActiveTrackIndex();
     root.removeChild (index, nullptr);
     store.remove (uid);   // playing voices keep their own shared_ptr copies
-    setActiveTrackIndex (juce::jmin (getActiveTrackIndex(), getNumTracks() - 1));
+
+    // Keep the same track selected: shift the active index down if a track at
+    // or before it was removed, then clamp to the new range.
+    int newActive = active;
+    if (index < active)      --newActive;
+    else if (index == active) newActive = active;   // next track slides into place
+    setActiveTrackIndex (juce::jlimit (0, juce::jmax (0, getNumTracks() - 1), newActive));
 }
 
 // ---- snapshot -----------------------------------------------------------
@@ -211,6 +221,11 @@ void SessionState::restoreFromSaveTree (const juce::ValueTree& saved)
 {
     if (! saved.hasType (id::SESSION))
         return;
+
+    // Drop any audio from a previous session so a reused uid can never serve
+    // stale samples; it is fully rebuilt from the restored tree below.
+    store.clear();
+    nextUid = 1;
 
     root.removeListener (this);
     root.copyPropertiesAndChildrenFrom (saved, nullptr);

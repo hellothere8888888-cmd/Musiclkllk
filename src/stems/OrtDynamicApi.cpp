@@ -80,6 +80,34 @@ namespace
         api.ReleaseStatus (status);
         return msg;
     }
+
+    // IEEE 754 half -> float. Used when the model emits fp16 output tensors
+    // (the fp16-weights HTDemucs export can), so we never read a 2-byte value
+    // as a 4-byte float.
+    float halfToFloat (uint16_t h)
+    {
+        const uint32_t sign = (uint32_t) (h & 0x8000u) << 16;
+        uint32_t exp = (h >> 10) & 0x1Fu;
+        uint32_t mant = h & 0x3FFu;
+        uint32_t bits;
+        if (exp == 0)
+        {
+            if (mant == 0) { bits = sign; }
+            else
+            {
+                exp = 1;
+                while ((mant & 0x400u) == 0) { mant <<= 1; --exp; }
+                mant &= 0x3FFu;
+                bits = sign | ((exp + (127 - 15)) << 23) | (mant << 13);
+            }
+        }
+        else if (exp == 0x1Fu) { bits = sign | 0x7F800000u | (mant << 13); }
+        else                   { bits = sign | ((exp + (127 - 15)) << 23) | (mant << 13); }
+
+        float out;
+        std::memcpy (&out, &bits, sizeof (out));
+        return out;
+    }
 } // namespace
 
 struct OrtSession::Impl
@@ -155,14 +183,18 @@ bool OrtSession::load (const juce::File& modelFile, juce::String& error)
         { error = "Model has unexpected inputs/outputs"; return false; }
 
     char* name = nullptr;
-    api->SessionGetInputName (impl->session, 0, allocator, &name);
+    if (auto msg = ortErrorToString (*api, api->SessionGetInputName (impl->session, 0, allocator, &name));
+        msg.isNotEmpty() || name == nullptr)
+        { error = "Could not read model input name: " + msg; return false; }
     impl->inputName = juce::String (juce::CharPointer_UTF8 (name));
     allocator->Free (allocator, name);
 
     for (size_t i = 0; i < numOutputs; ++i)
     {
         char* outName = nullptr;
-        api->SessionGetOutputName (impl->session, i, allocator, &outName);
+        if (auto msg = ortErrorToString (*api, api->SessionGetOutputName (impl->session, i, allocator, &outName));
+            msg.isNotEmpty() || outName == nullptr)
+            { error = "Could not read model output name: " + msg; return false; }
         impl->outputNames.push_back (juce::String (juce::CharPointer_UTF8 (outName)));
         allocator->Free (allocator, outName);
     }
@@ -229,8 +261,10 @@ bool OrtSession::run (const juce::AudioBuffer<float>& segment,
     auto extract = [&] (OrtValue* value) -> bool
     {
         OrtTensorTypeAndShapeInfo* info = nullptr;
-        if (api->GetTensorTypeAndShape (value, &info) != nullptr)
-            return false;
+        if (auto* st = api->GetTensorTypeAndShape (value, &info)) { api->ReleaseStatus (st); return false; }
+
+        ONNXTensorElementDataType elemType = ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
+        api->GetTensorElementType (info, &elemType);
         size_t numDims = 0;
         api->GetDimensionsCount (info, &numDims);
         std::vector<int64_t> dims (numDims);
@@ -241,9 +275,39 @@ bool OrtSession::run (const juce::AudioBuffer<float>& segment,
         size_t d = 0;
         while (numDims - d > 3 && dims[d] == 1) ++d;
 
-        float* data = nullptr;
-        if (api->GetTensorMutableData (value, (void**) &data) != nullptr || data == nullptr)
+        void* raw = nullptr;
+        if (auto* st = api->GetTensorMutableData (value, &raw)) { api->ReleaseStatus (st); return false; }
+        if (raw == nullptr)
             return false;
+
+        // Materialise as float regardless of the on-wire element type; leading
+        // dims are all 1 so the [d..] layout maths below index from the start.
+        size_t total = 1;
+        for (size_t k = 0; k < numDims; ++k)
+            total *= (size_t) juce::jmax<int64_t> (0, dims[k]);
+
+        std::vector<float> materialised (total);
+        switch (elemType)
+        {
+            case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT:
+                std::memcpy (materialised.data(), raw, total * sizeof (float));
+                break;
+            case ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16:
+            {
+                const auto* h = static_cast<const uint16_t*> (raw);
+                for (size_t k = 0; k < total; ++k) materialised[k] = halfToFloat (h[k]);
+                break;
+            }
+            case ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE:
+            {
+                const auto* dd = static_cast<const double*> (raw);
+                for (size_t k = 0; k < total; ++k) materialised[k] = (float) dd[k];
+                break;
+            }
+            default:
+                return false;   // unsupported output type
+        }
+        const float* data = materialised.data();
 
         if (numDims - d == 3)   // [stems, ch, S]
         {

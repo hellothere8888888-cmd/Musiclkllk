@@ -20,6 +20,8 @@ public:
 
     void remove (int uid) { entries.erase (uid); }
 
+    void clear() { entries.clear(); }
+
     BufferPtr getBuffer (int uid) const
     {
         auto it = entries.find (uid);

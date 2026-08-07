@@ -1,5 +1,6 @@
 #pragma once
 #include "../model/EngineSnapshot.h"
+#include "BufferReleasePool.h"
 
 namespace pablo
 {
@@ -10,7 +11,9 @@ namespace pablo
 class Voice
 {
 public:
-    void prepare (double hostSampleRate);
+    // 'pool' (may be null in tests) receives finished buffers so they are never
+    // freed on the audio thread.
+    void prepare (double hostSampleRate, BufferReleasePool* pool = nullptr);
 
     void start (std::shared_ptr<const juce::AudioBuffer<float>> buffer,
                 double sourceSampleRate,
@@ -40,7 +43,10 @@ private:
     float fadeGain = 0.0f, fadeInc = 0.0f, fadeTarget = 1.0f;
     bool fadingOut = false;
     double hostRate = 44100.0;
+    BufferReleasePool* releasePool = nullptr;
 
+    // Drops 'source' without freeing on the audio thread when a pool is set.
+    void releaseSource();
     float interpolate (const float* data, juce::int64 numSamples, double position) const;
 };
 } // namespace pablo

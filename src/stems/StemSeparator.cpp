@@ -8,7 +8,13 @@ StemSeparator::StemSeparator() : juce::Thread ("PabloStemSeparator") {}
 
 StemSeparator::~StemSeparator()
 {
-    stopThread (2000);
+    // The worker checks threadShouldExit() between segments, so a cancel
+    // normally returns within one segment. A single ONNX Run() can take a few
+    // seconds and cannot be interrupted, so give it a generous window rather
+    // than force-killing mid-inference (which would leave ORT in an undefined
+    // state). 30 s comfortably covers one CPU segment.
+    signalThreadShouldExit();
+    stopThread (30000);
 }
 
 bool StemSeparator::separate (const juce::AudioBuffer<float>& sourceToUse, double sourceSampleRate,

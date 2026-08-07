@@ -11,7 +11,7 @@ void SamplerEngine::prepare (double sampleRate, int)
 {
     hostRate = sampleRate;
     for (auto& v : voices)
-        v.prepare (sampleRate);
+        v.prepare (sampleRate, &releasePool);
     masterGain.reset (sampleRate, 0.02);
 }
 
