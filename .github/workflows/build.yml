@@ -1,0 +1,115 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ORT_VERSION: "1.20.1"
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Windows: the real deliverable. Builds the VST3 and drops onnxruntime.dll
+  # into the bundle's Contents/Resources so stem splitting works out of the box.
+  # -------------------------------------------------------------------------
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache CMake dependencies (JUCE + ORT headers)
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: win-deps-${{ hashFiles('cmake/*.cmake', 'CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DPABLO_BUILD_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --target PabloSampler_VST3 --parallel
+
+      - name: Download ONNX Runtime (Windows x64)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$env:ORT_VERSION/onnxruntime-win-x64-$env:ORT_VERSION.zip"
+          Invoke-WebRequest -Uri $url -OutFile ort.zip
+          Expand-Archive -Path ort.zip -DestinationPath ort -Force
+
+      - name: Locate VST3 bundle and bundle onnxruntime.dll
+        shell: pwsh
+        run: |
+          $vst3 = Get-ChildItem -Path build -Recurse -Directory -Filter "PABLO Sampler.vst3" | Select-Object -First 1
+          if (-not $vst3) { throw "VST3 bundle not found" }
+          Write-Host "Bundle: $($vst3.FullName)"
+          $res = Join-Path $vst3.FullName "Contents\Resources"
+          New-Item -ItemType Directory -Force -Path $res | Out-Null
+          $dll = Get-ChildItem -Path ort -Recurse -Filter "onnxruntime.dll" | Select-Object -First 1
+          Copy-Item $dll.FullName -Destination $res
+          $shared = Get-ChildItem -Path ort -Recurse -Filter "onnxruntime_providers_shared.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($shared) { Copy-Item $shared.FullName -Destination $res }
+          echo "VST3_DIR=$($vst3.FullName)" >> $env:GITHUB_ENV
+
+      - name: Stage artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item -Recurse "$env:VST3_DIR" -Destination "staging\PABLO Sampler.vst3"
+          Copy-Item README.md -Destination staging\README.md
+
+      - name: Upload VST3 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PABLO-Sampler-Windows-VST3
+          path: staging
+
+      - name: Zip for release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: Compress-Archive -Path staging\* -DestinationPath PABLO-Sampler-Windows.zip
+
+      - name: Create release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PABLO-Sampler-Windows.zip
+
+  # -------------------------------------------------------------------------
+  # Linux: build sanity + unit tests. No artifact.
+  # -------------------------------------------------------------------------
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install JUCE build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev libjack-jackd2-dev libcurl4-openssl-dev \
+            libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+            libxinerama-dev libxrandr-dev libxrender-dev \
+            libglu1-mesa-dev mesa-common-dev
+
+      - name: Cache CMake dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: linux-deps-${{ hashFiles('cmake/*.cmake', 'CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build plugin + tests
+        run: cmake --build build --config Release --parallel
+
+      - name: Run unit tests
+        run: ctest --test-dir build --output-on-failure

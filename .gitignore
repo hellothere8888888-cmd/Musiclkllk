@@ -1,0 +1,9 @@
+build/
+build-*/
+cmake-build-*/
+.cache/
+.vs/
+.vscode/
+*.user
+models/
+JuceLibraryCode/
