@@ -24,6 +24,11 @@ into stems (drums / bass / other / vocals) with an on-device AI model.
   - **Per-chop pitch** (±24 semitones), **per-chop reverse**, and a **PITCH
     ALL** button that copies the selected chop's pitch to every chop.
   - A separate **global pitch** knob shifts every chop on every track at once.
+  - **Slice to grid** at the host tempo (bar / beat / 1/8 / 1/16) alongside
+    transient detection and equal slices.
+- **Time-stretch per chop** — a **STR** control stretches a chop to a new tempo
+  without the chipmunk pitch change (pitch stays independent while stretched),
+  rendered in the background so playback never stutters.
 - **Groove** — a **SWING** knob lays the off-beat 16ths back off the grid (the
   MPC / Dilla feel), with a **GRID** selector (1/4 … 1/32) and a **QUANT**
   toggle that snaps incoming notes to the grid or leaves your raw finger timing

@@ -35,6 +35,22 @@ ChopInspectorPanel::ChopInspectorPanel (SessionState& s, SamplerEngine& e) : ses
     };
     addAndMakeVisible (velSlider);
 
+    stretchSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+    stretchSlider.setRange (50.0, 200.0, 1.0);
+    stretchSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 20);
+    stretchSlider.setTextValueSuffix (" %");
+    stretchSlider.setDoubleClickReturnValue (true, 100.0);
+    stretchSlider.setTooltip ("Time-stretch this chop to fit a new tempo without changing pitch "
+                              "(100% = off). Pitch stays independent while stretched.");
+    stretchSlider.onValueChange = [this]
+    {
+        if (updating) return;
+        auto track = session.getActiveTrack();
+        if (track.isValid() && selectedChop < track.getNumChops())
+            track.setChopStretch (selectedChop, (float) (stretchSlider.getValue() / 100.0), nullptr);
+    };
+    addAndMakeVisible (stretchSlider);
+
     reverseButton.setClickingTogglesState (true);
     reverseButton.setTooltip ("Play this chop backwards");
     reverseButton.onClick = [this]
@@ -83,11 +99,13 @@ void ChopInspectorPanel::refresh()
     updating = true;
     pitchSlider.setValue (valid ? track.getChopPitch (selectedChop) : 0.0, juce::dontSendNotification);
     velSlider.setValue (valid ? track.getChopVelSens (selectedChop) * 100.0 : 100.0, juce::dontSendNotification);
+    stretchSlider.setValue (valid ? track.getChopStretch (selectedChop) * 100.0 : 100.0, juce::dontSendNotification);
     reverseButton.setToggleState (valid && track.getChopReverse (selectedChop), juce::dontSendNotification);
     updating = false;
 
     pitchSlider.setEnabled (valid);
     velSlider.setEnabled (valid);
+    stretchSlider.setEnabled (valid);
     reverseButton.setEnabled (valid);
     playButton.setEnabled (valid);
     applyAllButton.setEnabled (valid);
@@ -111,8 +129,9 @@ void ChopInspectorPanel::paint (juce::Graphics& g)
 
     g.setColour (ink);
     g.setFont (monoFont (11.0f));
-    g.drawText ("PITCH", pitchLabelArea, juce::Justification::centredLeft);
-    g.drawText ("VEL",   velLabelArea,   juce::Justification::centredLeft);
+    g.drawText ("PITCH", pitchLabelArea,   juce::Justification::centredLeft);
+    g.drawText ("VEL",   velLabelArea,     juce::Justification::centredLeft);
+    g.drawText ("STR",   stretchLabelArea, juce::Justification::centredLeft);
 }
 
 void ChopInspectorPanel::resized()
@@ -120,17 +139,22 @@ void ChopInspectorPanel::resized()
     auto area = getLocalBounds().reduced (10, 6);
     area.removeFromTop (22);
 
-    auto row1 = area.removeFromTop (24);
+    auto row1 = area.removeFromTop (22);
     pitchLabelArea = row1.removeFromLeft (38);
     pitchSlider.setBounds (row1);
 
-    area.removeFromTop (4);
-    auto rowVel = area.removeFromTop (24);
+    area.removeFromTop (3);
+    auto rowVel = area.removeFromTop (22);
     velLabelArea = rowVel.removeFromLeft (38);
     velSlider.setBounds (rowVel);
 
-    area.removeFromTop (4);
-    auto row2 = area.removeFromTop (30);
+    area.removeFromTop (3);
+    auto rowStretch = area.removeFromTop (22);
+    stretchLabelArea = rowStretch.removeFromLeft (38);
+    stretchSlider.setBounds (rowStretch);
+
+    area.removeFromTop (3);
+    auto row2 = area.removeFromTop (28);
     const int bw = (row2.getWidth() - 12) / 3;
     playButton.setBounds (row2.removeFromLeft (bw));
     row2.removeFromLeft (6);

@@ -7,11 +7,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(PABLO_ENABLE_STEMS "Enable AI stem separation (ONNX Runtime)" ON)
+option(PABLO_ENABLE_STRETCH "Enable pitch-preserving time-stretch (signalsmith-stretch)" ON)
 option(PABLO_BUILD_TESTS "Build unit tests" ON)
 
 include(cmake/FetchJUCE.cmake)
 if(PABLO_ENABLE_STEMS)
     include(cmake/FetchOrtHeaders.cmake)
+endif()
+if(PABLO_ENABLE_STRETCH)
+    include(cmake/FetchSignalsmith.cmake)
 endif()
 
 # The model downloader uses juce::URL over HTTPS. On Linux/macOS that needs
@@ -33,6 +37,7 @@ set(PABLO_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/engine/Recorder.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/TransientDetector.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/Resampler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/TimeStretch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/stems/OrtDynamicApi.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/stems/ModelManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/stems/StemSeparator.cpp
@@ -54,7 +59,11 @@ function(pablo_configure_common target)
         JUCE_DISPLAY_SPLASH_SCREEN=0
         JUCE_MODAL_LOOPS_PERMITTED=1
         $<$<BOOL:${PABLO_ENABLE_STEMS}>:PABLO_ENABLE_STEMS=1>
+        $<$<BOOL:${PABLO_ENABLE_STRETCH}>:PABLO_ENABLE_STRETCH=1>
     )
+    if(PABLO_ENABLE_STRETCH)
+        target_link_libraries(${target} PRIVATE pablo_signalsmith)
+    endif()
     if(WIN32)
         target_compile_definitions(${target} PUBLIC JUCE_USE_CURL=0)
     else()

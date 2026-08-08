@@ -24,9 +24,9 @@ private:
     int selectedChop = 0;
     bool updating = false;
 
-    juce::Slider pitchSlider, velSlider;
+    juce::Slider pitchSlider, velSlider, stretchSlider;
     juce::TextButton reverseButton { "REVERSE" }, playButton { "PLAY" },
                      applyAllButton { "PITCH ALL" };
-    juce::Rectangle<int> pitchLabelArea, velLabelArea;
+    juce::Rectangle<int> pitchLabelArea, velLabelArea, stretchLabelArea;
 };
 } // namespace pablo

@@ -201,7 +201,7 @@ void PabloAudioEditor::resized()
     auto right = main.removeFromRight (juce::jmin (300, main.getWidth() / 3));
     padGrid.setBounds (right.reduced (4, 0).withTrimmedLeft (6));
 
-    chopInspector.setBounds (main.removeFromBottom (128).reduced (0, 4));
+    chopInspector.setBounds (main.removeFromBottom (152).reduced (0, 4));
     waveform.setBounds (main);
     stemOverlay.setBounds (waveform.getBounds());
 }

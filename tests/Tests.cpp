@@ -10,6 +10,7 @@
 #include "engine/SamplerEngine.h"
 #include "engine/GrooveTiming.h"
 #include "dsp/CarveFilter.h"
+#include "dsp/TimeStretch.h"
 #include "dsp/TransientDetector.h"
 #include "dsp/Resampler.h"
 #include "stems/StemSeparator.h"
@@ -537,6 +538,49 @@ void testCarveAndSlice()
     }
 }
 
+// ---- time-stretch (pitch-preserving) ------------------------------------
+void testTimeStretch()
+{
+    std::printf ("testTimeStretch\n");
+    using namespace pablo;
+
+    const double sr = 44100.0;
+    const int len = 22050;                       // 0.5 s
+    juce::AudioBuffer<float> in (1, len);
+    {
+        auto* w = in.getWritePointer (0);
+        for (int i = 0; i < len; ++i)
+            w[i] = 0.5f * std::sin (juce::MathConstants<float>::twoPi * 220.0f * (float) i / (float) sr);
+    }
+
+    auto freqHz = [sr] (const juce::AudioBuffer<float>& b)
+    {
+        int crossings = 0;
+        const auto* d = b.getReadPointer (0);
+        for (int i = 1; i < b.getNumSamples(); ++i)
+            if ((d[i - 1] <= 0.0f) != (d[i] <= 0.0f)) ++crossings;
+        return (double) crossings / 2.0 / ((double) b.getNumSamples() / sr);
+    };
+
+    auto s2 = timeStretchRegion (in, 0, len, 2.0, 0.0f, sr);
+#if PABLO_ENABLE_STRETCH
+    CHECK (s2 != nullptr);
+    if (s2 != nullptr)
+    {
+        CHECK (std::abs (s2->getNumSamples() - 2 * len) < len / 8);      // ~2x length
+        const float mag = s2->getMagnitude (0, s2->getNumSamples());
+        CHECK (mag > 0.05f && std::isfinite (mag));                      // non-silent, bounded
+        CHECK (std::abs (freqHz (*s2) - 220.0) < 40.0);                  // pitch preserved
+    }
+
+    auto sUp = timeStretchRegion (in, 0, len, 1.0, 12.0f, sr);           // +1 octave, same length
+    if (sUp != nullptr)
+        CHECK (freqHz (*sUp) > freqHz (in) * 1.5);                       // clearly higher
+#else
+    CHECK (s2 == nullptr);
+#endif
+}
+
 // ---- track removal keeps the right track active -------------------------
 void testRemoveTrackActiveIndex()
 {
@@ -672,6 +716,7 @@ int main()
     testGrooveTiming();
     testVelocityAndScheduler();
     testCarveAndSlice();
+    testTimeStretch();
     testRemoveTrackActiveIndex();
     testRestoreClearsStore();
     testSessionRoundTrip();

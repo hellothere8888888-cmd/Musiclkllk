@@ -1,5 +1,6 @@
 #include "SessionState.h"
 #include "../dsp/CarveFilter.h"
+#include "../dsp/TimeStretch.h"
 
 namespace pablo
 {
@@ -15,6 +16,7 @@ SessionState::SessionState (SnapshotExchange& exchangeToUse) : exchange (exchang
 
 SessionState::~SessionState()
 {
+    stopTimer();
     root.removeListener (this);
 }
 
@@ -136,7 +138,7 @@ void SessionState::removeTrack (int index)
 
 // ---- snapshot -----------------------------------------------------------
 
-std::unique_ptr<EngineSnapshot> SessionState::buildSnapshot() const
+std::unique_ptr<EngineSnapshot> SessionState::buildSnapshot()
 {
     auto snap = std::make_unique<EngineSnapshot>();
     snap->activeTrack = getActiveTrackIndex();
@@ -163,6 +165,18 @@ std::unique_ptr<EngineSnapshot> SessionState::buildSnapshot() const
             chop.pitchSemis = track.getChopPitch (c);
             chop.reverse = track.getChopReverse (c);
             chop.velSens = track.getChopVelSens (c);
+            chop.stretchRatio = track.getChopStretch (c);
+
+            // Attach a ready, up-to-date time-stretch render if we have one.
+            if (info.buffer != nullptr && std::abs (chop.stretchRatio - 1.0f) > 1.0e-4f)
+            {
+                const auto it = stretchCache.find (stretchKey (track.getUid(), c));
+                if (it != stretchCache.end() && it->second.buffer != nullptr
+                    && it->second.start == chop.start && it->second.end == chop.end
+                    && std::abs (it->second.ratio - (double) chop.stretchRatio) < 1.0e-6
+                    && std::abs (it->second.pitch - chop.pitchSemis) < 1.0e-4f)
+                    chop.stretched = it->second.buffer;
+            }
             info.chops.push_back (chop);
         }
         snap->tracks.push_back (std::move (info));
@@ -175,6 +189,92 @@ void SessionState::handleAsyncUpdate()
     publishNow();
     if (onSessionChanged)
         onSessionChanged();
+    startTimer (250);   // debounce time-stretch renders past rapid edits
+}
+
+// ---- time-stretch background rendering ----------------------------------
+
+void SessionState::timerCallback()
+{
+    stopTimer();
+
+    for (int i = 0; i < getNumTracks(); ++i)
+    {
+        auto track = getTrack (i);
+        auto src = store.getBuffer (track.getUid());
+        if (src == nullptr)
+            continue;
+
+        for (int c = 0; c < track.getNumChops(); ++c)
+        {
+            const float ratio = track.getChopStretch (c);
+            if (std::abs (ratio - 1.0f) < 1.0e-4f)
+                continue;   // no stretch requested
+
+            const juce::int64 key = stretchKey (track.getUid(), c);
+            auto& e = stretchCache[key];
+            if (e.rendering)
+                continue;   // one render at a time per chop
+
+            const juce::int64 start = juce::jlimit<juce::int64> (0, (juce::int64) src->getNumSamples(), track.getChopStart (c));
+            const juce::int64 end   = juce::jlimit<juce::int64> (start, (juce::int64) src->getNumSamples(), track.getChopEnd (c));
+            const float pitch = track.getChopPitch (c);
+
+            const bool upToDate = e.buffer != nullptr && e.start == start && e.end == end
+                               && std::abs (e.ratio - (double) ratio) < 1.0e-6
+                               && std::abs (e.pitch - pitch) < 1.0e-4f;
+            if (upToDate)
+                continue;
+
+            e.start = start; e.end = end; e.ratio = ratio; e.pitch = pitch;
+            e.buffer = nullptr; e.rendering = true;
+            launchStretch (key, track.getUid(), track.getSampleRate());
+        }
+    }
+}
+
+void SessionState::launchStretch (juce::int64 key, int uid, double sampleRate)
+{
+    const auto it = stretchCache.find (key);
+    if (it == stretchCache.end())
+        return;
+    const StretchEntry params = it->second;       // copy the params to render
+    auto src = store.getBuffer (uid);             // shared_ptr keeps the audio alive
+    if (src == nullptr)
+    {
+        it->second.rendering = false;
+        return;
+    }
+
+    juce::Thread::launch ([safeThis = juce::WeakReference<SessionState> (this),
+                           key, uid, src, params, sampleRate]
+    {
+        auto rendered = timeStretchRegion (*src, params.start, params.end,
+                                           params.ratio, params.pitch, sampleRate);
+
+        juce::MessageManager::callAsync ([safeThis, key, params, rendered]
+        {
+            auto* self = safeThis.get();
+            if (self == nullptr)
+                return;
+            const auto found = self->stretchCache.find (key);
+            if (found == self->stretchCache.end())
+                return;
+
+            auto& e = found->second;
+            e.rendering = false;
+            // Only keep the result if the request hasn't changed since we started.
+            if (e.start == params.start && e.end == params.end
+                && std::abs (e.ratio - params.ratio) < 1.0e-6
+                && std::abs (e.pitch - params.pitch) < 1.0e-4f)
+                e.buffer = rendered;
+
+            self->publishNow();                    // republish with the new buffer attached
+            if (self->onSessionChanged)
+                self->onSessionChanged();
+            self->startTimer (30);                 // re-check in case params changed mid-render
+        });
+    });
 }
 
 void SessionState::publishNow()
@@ -294,8 +394,10 @@ void SessionState::restoreFromSaveTree (const juce::ValueTree& saved)
     }
 
     root.addListener (this);
+    stretchCache.clear();
     publishNow();
     if (onSessionChanged)
         onSessionChanged();
+    startTimer (250);   // render any time-stretched chops in the restored session
 }
 } // namespace pablo

@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <map>
 #include "SampleTrack.h"
 #include "SampleStore.h"
 #include "EngineSnapshot.h"
@@ -12,7 +13,8 @@ namespace pablo
 // debounced rebuild of the EngineSnapshot which is published to the audio
 // thread through the SnapshotExchange handed in by the processor.
 class SessionState : private juce::ValueTree::Listener,
-                     private juce::AsyncUpdater
+                     private juce::AsyncUpdater,
+                     private juce::Timer
 {
 public:
     explicit SessionState (SnapshotExchange& exchangeToUse);
@@ -64,7 +66,23 @@ private:
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override             { triggerAsyncUpdate(); }
     void handleAsyncUpdate() override;
 
-    std::unique_ptr<EngineSnapshot> buildSnapshot() const;
+    // Debounced background render of pitch-preserving time-stretch. Both the
+    // cache and buildSnapshot are message-thread only, so no locking is needed;
+    // the worker thread only produces a buffer and hands it back via callAsync.
+    void timerCallback() override;
+    struct StretchEntry
+    {
+        juce::int64 start = 0, end = 0;
+        double ratio = 1.0;
+        float  pitch = 0.0f;
+        bool   rendering = false;
+        std::shared_ptr<const juce::AudioBuffer<float>> buffer;
+    };
+    std::map<juce::int64, StretchEntry> stretchCache;   // key = uid * 100000 + chopIndex
+    static juce::int64 stretchKey (int uid, int chopIndex) { return (juce::int64) uid * 100000 + chopIndex; }
+    void launchStretch (juce::int64 key, int uid, double sampleRate);
+
+    std::unique_ptr<EngineSnapshot> buildSnapshot();
     juce::ValueTree createTrackTree (const juce::String& name, juce::int64 length, double sampleRate);
 
     SnapshotExchange& exchange;

@@ -93,8 +93,23 @@ void SamplerEngine::startChop (const EngineSnapshot& snap, int track, int chop,
     // chop always plays full; at 1 it tracks velocity across the full range.
     const float vel = juce::jlimit (0.0f, 1.0f, velocity);
     const float velGain = 1.0f - c.velSens * (1.0f - vel);
-    free->start (t.buffer, t.sourceSampleRate, c,
-                 c.pitchSemis + params.globalPitch, t.gain * velGain, track, chop);
+
+    if (c.stretched != nullptr)
+    {
+        // Pre-rendered pitch-preserving version: play it whole at natural rate
+        // (per-chop pitch is already baked in; only global pitch varispeeds it).
+        ChopPlayInfo sc;
+        sc.start = 0;
+        sc.end = c.stretched->getNumSamples();
+        sc.reverse = c.reverse;
+        free->start (c.stretched, t.sourceSampleRate, sc,
+                     params.globalPitch, t.gain * velGain, track, chop);
+    }
+    else
+    {
+        free->start (t.buffer, t.sourceSampleRate, c,
+                     c.pitchSemis + params.globalPitch, t.gain * velGain, track, chop);
+    }
     free->setFilter (t.filterMode, t.filterCutoff);
     voiceAges[free - voices.data()] = ++ageCounter;
 
