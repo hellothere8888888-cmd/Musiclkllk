@@ -461,6 +461,33 @@ void testVelocityAndScheduler()
         CHECK (std::abs (hard - soft) < 0.02f);
     }
 
+    // Per-chop volume scales the output (half gain ~ half magnitude).
+    {
+        auto makeGainSnap = [&] (float g)
+        {
+            auto snap = std::make_unique<EngineSnapshot>();
+            TrackPlayInfo t; t.buffer = buffer; t.sourceSampleRate = 44100.0; t.gain = 1.0f;
+            ChopPlayInfo c; c.start = 0; c.end = len; c.gain = g; t.chops.push_back (c);
+            snap->tracks.push_back (std::move (t)); snap->activeTrack = 0;
+            return snap;
+        };
+        auto mag = [] (std::unique_ptr<EngineSnapshot> snap)
+        {
+            SnapshotExchange ex; ex.publish (std::move (snap));
+            SamplerEngine engine; engine.prepare (44100.0, 512);
+            engine.triggerFromUI (0, 0, true);
+            juce::AudioBuffer<float> out (2, 512);
+            float m = 0.0f;
+            SamplerEngine::Params p;
+            for (int b = 0; b < 4; ++b) { out.clear(); engine.process (out, {}, ex.acquire(), p); m = juce::jmax (m, out.getMagnitude (0, out.getNumSamples())); }
+            return m;
+        };
+        const float full = mag (makeGainSnap (1.0f));
+        const float half = mag (makeGainSnap (0.5f));
+        CHECK (full > 0.1f);
+        CHECK (std::abs (half - full * 0.5f) < full * 0.1f);
+    }
+
     // Swing defers an off-beat note past the block boundary; the scheduler must
     // carry it and fire it in a later block.
     {

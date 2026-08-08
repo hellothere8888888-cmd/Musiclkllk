@@ -48,11 +48,14 @@ public:
     float getChopVelSens (int i) const { return (float) getChop (i).getProperty (id::velSens, 1.0f); }
     // Pitch-preserving time-stretch length multiplier (1 = off, >1 slower/longer).
     float getChopStretch (int i) const { return (float) getChop (i).getProperty (id::stretchRatio, 1.0f); }
+    // Per-chop volume, linear (1 = 100%).
+    float getChopGain (int i) const    { return (float) getChop (i).getProperty (id::chopGain, 1.0f); }
 
     void setChopPitch (int i, float semis, juce::UndoManager* um)  { getChop (i).setProperty (id::pitchSemis, semis, um); }
     void setChopReverse (int i, bool rev, juce::UndoManager* um)   { getChop (i).setProperty (id::reverse, rev, um); }
     void setChopVelSens (int i, float s, juce::UndoManager* um)    { getChop (i).setProperty (id::velSens, juce::jlimit (0.0f, 1.0f, s), um); }
     void setChopStretch (int i, float r, juce::UndoManager* um)    { getChop (i).setProperty (id::stretchRatio, juce::jlimit (0.5f, 2.0f, r), um); }
+    void setChopGain (int i, float g, juce::UndoManager* um)       { getChop (i).setProperty (id::chopGain, juce::jlimit (0.0f, 2.0f, g), um); }
 
     int findChopContaining (juce::int64 sample) const
     {

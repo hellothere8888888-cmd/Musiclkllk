@@ -38,6 +38,7 @@ PABLO_DECLARE_ID (pitchSemis)
 PABLO_DECLARE_ID (reverse)
 PABLO_DECLARE_ID (velSens)      // 0 = ignore MIDI velocity .. 1 = full dynamic range
 PABLO_DECLARE_ID (stretchRatio) // length multiplier for pitch-preserving time-stretch (1 = off)
+PABLO_DECLARE_ID (chopGain)     // per-chop volume, linear (1 = 100%)
 
 #undef PABLO_DECLARE_ID
 } // namespace pablo::id

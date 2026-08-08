@@ -20,6 +20,21 @@ ChopInspectorPanel::ChopInspectorPanel (SessionState& s, SamplerEngine& e) : ses
     };
     addAndMakeVisible (pitchSlider);
 
+    volumeSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+    volumeSlider.setRange (0.0, 200.0, 1.0);
+    volumeSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 20);
+    volumeSlider.setTextValueSuffix (" %");
+    volumeSlider.setDoubleClickReturnValue (true, 100.0);
+    volumeSlider.setTooltip ("Volume of this chop (100% = unity)");
+    volumeSlider.onValueChange = [this]
+    {
+        if (updating) return;
+        auto track = session.getActiveTrack();
+        if (track.isValid() && selectedChop < track.getNumChops())
+            track.setChopGain (selectedChop, (float) (volumeSlider.getValue() / 100.0), nullptr);
+    };
+    addAndMakeVisible (volumeSlider);
+
     velSlider.setSliderStyle (juce::Slider::LinearHorizontal);
     velSlider.setRange (0.0, 100.0, 1.0);
     velSlider.setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 20);
@@ -95,20 +110,35 @@ void ChopInspectorPanel::refresh()
 {
     auto track = session.getActiveTrack();
     const bool valid = track.isValid() && selectedChop >= 0 && selectedChop < track.getNumChops();
+    haveChop = valid;
 
     updating = true;
     pitchSlider.setValue (valid ? track.getChopPitch (selectedChop) : 0.0, juce::dontSendNotification);
+    volumeSlider.setValue (valid ? track.getChopGain (selectedChop) * 100.0 : 100.0, juce::dontSendNotification);
     velSlider.setValue (valid ? track.getChopVelSens (selectedChop) * 100.0 : 100.0, juce::dontSendNotification);
     stretchSlider.setValue (valid ? track.getChopStretch (selectedChop) * 100.0 : 100.0, juce::dontSendNotification);
     reverseButton.setToggleState (valid && track.getChopReverse (selectedChop), juce::dontSendNotification);
     updating = false;
 
-    pitchSlider.setEnabled (valid);
-    velSlider.setEnabled (valid);
-    stretchSlider.setEnabled (valid);
-    reverseButton.setEnabled (valid);
-    playButton.setEnabled (valid);
-    applyAllButton.setEnabled (valid);
+    // Slice length readout for the header.
+    if (valid && track.getSampleRate() > 0.0)
+    {
+        const double secs = (double) (track.getChopEnd (selectedChop) - track.getChopStart (selectedChop))
+                          / track.getSampleRate();
+        sliceInfo = juce::String (secs, 2) + "s slice";
+    }
+    else
+        sliceInfo = {};
+
+    // Hide the controls entirely when there's nothing to edit, so the empty-
+    // state hint reads cleanly instead of a row of greyed-out sliders.
+    pitchSlider.setVisible (valid);
+    volumeSlider.setVisible (valid);
+    velSlider.setVisible (valid);
+    stretchSlider.setVisible (valid);
+    reverseButton.setVisible (valid);
+    playButton.setVisible (valid);
+    applyAllButton.setVisible (valid);
     repaint();
 }
 
@@ -122,14 +152,30 @@ void ChopInspectorPanel::paint (juce::Graphics& g)
     g.setColour (ink);
     g.drawRect (bounds, 1.4f);
 
+    auto headerRow = getLocalBounds().reduced (10, 6).removeFromTop (20);
     g.setFont (markerFont (17.0f));
-    g.drawText ("CHOP " + juce::String (selectedChop + 1),
-                getLocalBounds().reduced (10, 6).removeFromTop (20),
-                juce::Justification::centredLeft);
+    g.drawText ("CHOP " + juce::String (selectedChop + 1), headerRow, juce::Justification::centredLeft);
+    if (haveChop && sliceInfo.isNotEmpty())
+    {
+        g.setFont (monoFont (11.0f));
+        g.drawText (sliceInfo, headerRow, juce::Justification::centredRight);
+    }
+
+    // Empty state: make it obvious why the controls are greyed out.
+    if (! haveChop)
+    {
+        g.setColour (ink.withAlpha (0.75f));
+        g.setFont (monoFont (12.0f));
+        g.drawFittedText ("LOAD A SAMPLE, THEN PICK A CHOP (CLICK A PAD)",
+                          getLocalBounds().reduced (14, 0).withTrimmedTop (24),
+                          juce::Justification::centredTop, 2);
+        return;
+    }
 
     g.setColour (ink);
     g.setFont (monoFont (11.0f));
     g.drawText ("PITCH", pitchLabelArea,   juce::Justification::centredLeft);
+    g.drawText ("VOL",   volLabelArea,     juce::Justification::centredLeft);
     g.drawText ("VEL",   velLabelArea,     juce::Justification::centredLeft);
     g.drawText ("STR",   stretchLabelArea, juce::Justification::centredLeft);
 }
@@ -142,6 +188,11 @@ void ChopInspectorPanel::resized()
     auto row1 = area.removeFromTop (22);
     pitchLabelArea = row1.removeFromLeft (38);
     pitchSlider.setBounds (row1);
+
+    area.removeFromTop (3);
+    auto rowVol = area.removeFromTop (22);
+    volLabelArea = rowVol.removeFromLeft (38);
+    volumeSlider.setBounds (rowVol);
 
     area.removeFromTop (3);
     auto rowVel = area.removeFromTop (22);

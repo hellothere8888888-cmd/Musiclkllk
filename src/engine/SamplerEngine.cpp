@@ -92,7 +92,7 @@ void SamplerEngine::startChop (const EngineSnapshot& snap, int track, int chop,
     // Velocity attenuation scaled by the chop's sensitivity: at velSens 0 the
     // chop always plays full; at 1 it tracks velocity across the full range.
     const float vel = juce::jlimit (0.0f, 1.0f, velocity);
-    const float velGain = 1.0f - c.velSens * (1.0f - vel);
+    const float velGain = (1.0f - c.velSens * (1.0f - vel)) * c.gain;   // includes per-chop volume
 
     if (c.stretched != nullptr)
     {

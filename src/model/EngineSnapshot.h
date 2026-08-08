@@ -16,6 +16,7 @@ struct ChopPlayInfo
     float pitchSemis  = 0.0f;
     bool  reverse     = false;
     float velSens     = 1.0f;   // MIDI-velocity sensitivity (1 = full, 0 = ignore)
+    float gain        = 1.0f;   // per-chop volume, linear
     float stretchRatio = 1.0f;  // requested length multiplier (1 = off)
     // Pre-rendered pitch-preserving stretch of this chop; when non-null the
     // voice plays it at natural rate instead of varispeeding the source.

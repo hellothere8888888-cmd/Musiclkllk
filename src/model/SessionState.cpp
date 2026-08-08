@@ -165,6 +165,7 @@ std::unique_ptr<EngineSnapshot> SessionState::buildSnapshot()
             chop.pitchSemis = track.getChopPitch (c);
             chop.reverse = track.getChopReverse (c);
             chop.velSens = track.getChopVelSens (c);
+            chop.gain = track.getChopGain (c);
             chop.stretchRatio = track.getChopStretch (c);
 
             // Attach a ready, up-to-date time-stretch render if we have one.
