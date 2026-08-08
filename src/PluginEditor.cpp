@@ -11,7 +11,7 @@ PabloAudioEditor::PabloAudioEditor (PabloAudioProcessor& p)
       padGrid (p.session, p.engine),
       trackTabs (p.session),
       chopInspector (p.session, p.engine),
-      transport (p.session, p.recorder, p.apvts),
+      transport (p.session, p.recorder, p.engine, p.apvts),
       keyboardHandler (p.engine)
 {
     setLookAndFeel (&lookAndFeel);
@@ -42,6 +42,20 @@ PabloAudioEditor::PabloAudioEditor (PabloAudioProcessor& p)
         processor.apvts, params::globalPitch, globalPitchSlider);
     swingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         processor.apvts, params::swing, swingSlider);
+
+    // Per-track "carve" filter: one bipolar knob. Left high-passes the lows out,
+    // right low-passes the highs off, centre bypasses. Bound to the active track.
+    setupRotary (filterSlider, "");
+    filterSlider.setRange (-100.0, 100.0, 1.0);
+    filterSlider.setDoubleClickReturnValue (true, 0.0);
+    filterSlider.setTooltip ("Carve filter for this track: left cleans the low end (high-pass), "
+                             "right tames the highs (low-pass), centre is off");
+    filterSlider.onValueChange = [this]
+    {
+        auto track = processor.session.getActiveTrack();
+        if (track.isValid())
+            track.setFilterCarve ((float) (filterSlider.getValue() / 100.0), nullptr);
+    };
 
     // Groove grid (feeds both swing and quantize) + quantize toggle.
     gridBox.addItemList ({ "1/4", "1/8", "1/16", "1/32" }, 1);
@@ -104,6 +118,14 @@ void PabloAudioEditor::refreshAll()
     padGrid.refresh();
     trackTabs.refresh();
     chopInspector.refresh();
+
+    // Sync the per-track carve knob to the active track (no notification, so
+    // this never writes back over the value the user is dragging).
+    auto track = processor.session.getActiveTrack();
+    filterSlider.setValue (track.isValid() ? track.getFilterCarve() * 100.0 : 0.0,
+                           juce::dontSendNotification);
+    filterSlider.setEnabled (processor.session.getNumTracks() > 0);
+
     updateSplitAvailability();
 }
 
@@ -149,6 +171,8 @@ void PabloAudioEditor::paint (juce::Graphics& g)
                 juce::Justification::centred);
     g.drawText ("SWING", swingSlider.getBounds().translated (0, -12).removeFromTop (12),
                 juce::Justification::centred);
+    g.drawText ("FILTER", filterSlider.getBounds().translated (0, -12).removeFromTop (12),
+                juce::Justification::centred);
     g.drawText ("GRID", juce::Rectangle<int> (gridBox.getX(), gridBox.getY() - 12, gridBox.getWidth(), 12),
                 juce::Justification::centred);
 }
@@ -158,11 +182,12 @@ void PabloAudioEditor::resized()
     auto area = getLocalBounds();
 
     auto header = area.removeFromTop (58);
-    auto knobs = header.removeFromRight (330).reduced (0, 2);
+    auto knobs = header.removeFromRight (406).reduced (0, 2);
     knobs.removeFromTop (10);
     masterGainSlider.setBounds (knobs.removeFromLeft (76));
     globalPitchSlider.setBounds (knobs.removeFromLeft (76));
     swingSlider.setBounds (knobs.removeFromLeft (76));
+    filterSlider.setBounds (knobs.removeFromLeft (76));
     auto grooveCol = knobs.reduced (4, 0);
     quantButton.setBounds (grooveCol.removeFromBottom (20));
     grooveCol.removeFromBottom (3);

@@ -1,6 +1,7 @@
 #pragma once
 #include "../model/EngineSnapshot.h"
 #include "BufferReleasePool.h"
+#include <juce_dsp/juce_dsp.h>
 
 namespace pablo
 {
@@ -13,7 +14,11 @@ class Voice
 public:
     // 'pool' (may be null in tests) receives finished buffers so they are never
     // freed on the audio thread.
-    void prepare (double hostSampleRate, BufferReleasePool* pool = nullptr);
+    void prepare (double hostSampleRate, int blockSize, BufferReleasePool* pool = nullptr);
+
+    // Live per-block update of this voice's per-track carve filter (RT-safe:
+    // only recomputes coefficients). mode: 0 = off, 1 = low-pass, 2 = high-pass.
+    void setFilter (int mode, float cutoffHz);
 
     void start (std::shared_ptr<const juce::AudioBuffer<float>> buffer,
                 double sourceSampleRate,
@@ -28,6 +33,7 @@ public:
     bool isActive() const { return active; }
     int  getTrackIndex() const { return trackIndex; }
     int  getChopIndex() const  { return chopIndex; }
+    double getSourcePosition() const { return pos; }   // current read head, in source samples
 
     void render (juce::AudioBuffer<float>& out, int startSample, int numSamples);
 
@@ -44,6 +50,9 @@ private:
     bool fadingOut = false;
     double hostRate = 44100.0;
     BufferReleasePool* releasePool = nullptr;
+
+    juce::dsp::StateVariableTPTFilter<float> filter;
+    int filterMode = 0;    // 0 = off, 1 = LP, 2 = HP
 
     // Drops 'source' without freeing on the audio thread when a pool is set.
     void releaseSource();

@@ -59,6 +59,11 @@ public:
     // Message thread: last host tempo seen by the audio thread (for the UI).
     double getHostBpm() const { return hostBpm.load (std::memory_order_relaxed); }
 
+    // Message thread: source-sample read positions of voices currently playing
+    // 'trackIndex', for drawing moving playheads. Writes up to maxOut values and
+    // returns the count.
+    int getActiveVoicePositions (int trackIndex, float* outPositions, int maxOut) const;
+
     // Message thread: drains chops triggered since last call, for pad flashes.
     // Returns pairs of (track, chop).
     std::vector<std::pair<int, int>> drainFlashes();
@@ -72,6 +77,7 @@ private:
                     const Params& params, float velocity);
     void stopChop (int track, int chop);
     void renderVoices (juce::AudioBuffer<float>& out, int startSample, int numSamples);
+    static void applyTrackFilter (Voice& v, const EngineSnapshot& snap);
 
     // A trigger scheduled to fire at an absolute sample time (sampleClock base).
     // Swing/quantize can push a trigger into a later block, so these persist.
@@ -82,6 +88,10 @@ private:
     std::vector<Voice> voices;
     juce::uint64 voiceAges[maxVoices] = {};
     juce::uint64 ageCounter = 0;
+
+    // Published each block for the UI playheads (audio writes, message reads).
+    struct VoicePos { std::atomic<int> track { -1 }; std::atomic<float> pos { -1.0f }; };
+    VoicePos voicePositions[maxVoices];
 
     static constexpr int maxScheduled = 256;
     ScheduledTrigger scheduled[maxScheduled];

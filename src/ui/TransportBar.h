@@ -2,6 +2,7 @@
 #include "Theme.h"
 #include "../model/SessionState.h"
 #include "../engine/Recorder.h"
+#include "../engine/SamplerEngine.h"
 #include "../dsp/TransientDetector.h"
 
 namespace pablo
@@ -11,7 +12,7 @@ namespace pablo
 class TransportBar : public juce::Component, private juce::Timer
 {
 public:
-    TransportBar (SessionState& session, Recorder& recorder,
+    TransportBar (SessionState& session, Recorder& recorder, SamplerEngine& engine,
                   juce::AudioProcessorValueTreeState& apvts);
 
     std::function<void()> onLoadRequested;
@@ -27,6 +28,7 @@ private:
 
     SessionState& session;
     Recorder& recorder;
+    SamplerEngine& engine;
 
     juce::TextButton loadButton { "LOAD" }, recButton { "REC" },
                      chopButton { "CHOP" }, splitButton { "SPLIT STEMS" },

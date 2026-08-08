@@ -11,7 +11,8 @@ namespace pablo
 //   - drag a marker to move it, double-click to add a chop
 //   - click a slice to select + audition it, right-click for chop actions
 //   - bottom strip = overview / scroll thumb
-class WaveformView : public juce::Component
+class WaveformView : public juce::Component,
+                     private juce::Timer
 {
 public:
     WaveformView (SessionState& session, SamplerEngine& engine);
@@ -38,6 +39,7 @@ private:
         std::vector<float> minV, maxV;    // mono-aggregated
     };
 
+    void timerCallback() override;
     void rebuildPeaks();
     void frameAll();
     void clampView();
@@ -62,6 +64,7 @@ private:
     int trackUid = -1;
 
     std::vector<PeakLevel> levels;
+    std::vector<float> playheads;         // source-sample read positions, updated by the timer
 
     double viewStart = 0.0;               // first visible sample
     double spp = 1.0;                     // samples per pixel

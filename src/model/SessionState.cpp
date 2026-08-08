@@ -1,4 +1,5 @@
 #include "SessionState.h"
+#include "../dsp/CarveFilter.h"
 
 namespace pablo
 {
@@ -147,6 +148,11 @@ std::unique_ptr<EngineSnapshot> SessionState::buildSnapshot() const
         info.buffer = store.getBuffer (track.getUid());
         info.sourceSampleRate = track.getSampleRate();
         info.gain = track.getGain();
+
+        // One-knob "carve" tone control (see CarveFilter.h).
+        const auto carve = carveToFilter (track.getFilterCarve());
+        info.filterMode = carve.mode;
+        info.filterCutoff = carve.cutoff;
 
         const auto len = info.buffer != nullptr ? (juce::int64) info.buffer->getNumSamples() : 0;
         for (int c = 0; c < track.getNumChops(); ++c)

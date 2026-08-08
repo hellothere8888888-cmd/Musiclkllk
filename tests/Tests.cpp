@@ -9,6 +9,7 @@
 #include "model/EngineSnapshot.h"
 #include "engine/SamplerEngine.h"
 #include "engine/GrooveTiming.h"
+#include "dsp/CarveFilter.h"
 #include "dsp/TransientDetector.h"
 #include "dsp/Resampler.h"
 #include "stems/StemSeparator.h"
@@ -489,6 +490,53 @@ void testVelocityAndScheduler()
     }
 }
 
+// ---- carve filter mapping + slice-to-grid -------------------------------
+void testCarveAndSlice()
+{
+    std::printf ("testCarveAndSlice\n");
+    using namespace pablo;
+
+    // Carve knob -> filter setting.
+    CHECK (carveToFilter (0.0f).mode == 0);              // centre = off
+    CHECK (carveToFilter (0.02f).mode == 0);             // dead-zone = off
+    {
+        const auto hp = carveToFilter (-1.0f);
+        CHECK (hp.mode == 2);                            // full left = high-pass
+        CHECK (std::abs (hp.cutoff - 1200.0f) < 5.0f);
+    }
+    {
+        const auto lp = carveToFilter (1.0f);
+        CHECK (lp.mode == 1);                            // full right = low-pass
+        CHECK (std::abs (lp.cutoff - 250.0f) < 5.0f);
+    }
+    // Monotonic: more left = higher HP cutoff; more right = lower LP cutoff.
+    CHECK (carveToFilter (-1.0f).cutoff > carveToFilter (-0.5f).cutoff);
+    CHECK (carveToFilter (1.0f).cutoff  < carveToFilter (0.5f).cutoff);
+
+    // Slice-to-grid: 4 beats at 120 BPM / 44.1k = one chop per beat.
+    {
+        SnapshotExchange ex;
+        SessionState session (ex);
+        const int len = 88200;                           // 4 beats @ 120 BPM
+        auto b = std::make_unique<juce::AudioBuffer<float>> (1, len);
+        b->clear();
+        auto track = session.addTrackFromBuffer ("grid", std::move (b), 44100.0);
+
+        track.sliceByBeats (120.0, 44100.0, 1.0, nullptr);   // per beat
+        CHECK (track.getNumChops() == 4);
+        CHECK (track.getChopStart (0) == 0);
+        CHECK (std::abs ((long) (track.getChopStart (1) - 22050)) <= 1);
+
+        track.sliceByBeats (120.0, 44100.0, 0.5, nullptr);   // 1/8 = 8 chops
+        CHECK (track.getNumChops() == 8);
+
+        // Degenerate inputs are ignored (no throw, chops unchanged count-wise).
+        const int before = track.getNumChops();
+        track.sliceByBeats (0.0, 44100.0, 1.0, nullptr);
+        CHECK (track.getNumChops() == before);
+    }
+}
+
 // ---- track removal keeps the right track active -------------------------
 void testRemoveTrackActiveIndex()
 {
@@ -623,6 +671,7 @@ int main()
     testEnginePlayback();
     testGrooveTiming();
     testVelocityAndScheduler();
+    testCarveAndSlice();
     testRemoveTrackActiveIndex();
     testRestoreClearsStore();
     testSessionRoundTrip();

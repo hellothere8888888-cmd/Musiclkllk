@@ -8,6 +8,19 @@ WaveformView::WaveformView (SessionState& s, SamplerEngine& e) : session (s), en
 {
     setWantsKeyboardFocus (false);
     refresh();
+    startTimerHz (45);
+}
+
+void WaveformView::timerCallback()
+{
+    // Read the read-heads of any voices playing the active track and repaint
+    // only when something is (or just was) sounding, so an idle editor is quiet.
+    float pos[32];
+    const int n = engine.getActiveVoicePositions (session.getActiveTrackIndex(), pos, 32);
+    const bool wasEmpty = playheads.empty();
+    playheads.assign (pos, pos + n);
+    if (n > 0 || ! wasEmpty)
+        repaint (waveArea());
 }
 
 void WaveformView::refresh()
@@ -244,6 +257,19 @@ void WaveformView::paint (juce::Graphics& g)
     }
 
     drawWave (g, area, viewStart, spp, ink);
+
+    // Moving playheads for voices sounding on this track.
+    for (const float p : playheads)
+    {
+        const float x = sampleToX ((double) p);
+        if (x >= (float) area.getX() && x <= (float) area.getRight())
+        {
+            g.setColour (cream.withAlpha (0.5f));
+            g.fillRect (x - 1.5f, (float) area.getY(), 3.0f, (float) area.getHeight());
+            g.setColour (juce::Colours::white);
+            g.fillRect (x - 0.5f, (float) area.getY(), 1.0f, (float) area.getHeight());
+        }
+    }
 
     // Chop markers + flags.
     if (track.isValid())

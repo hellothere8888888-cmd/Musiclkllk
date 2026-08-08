@@ -22,8 +22,11 @@ public:
     double getSampleRate() const        { return (double) tree.getProperty (id::sampleRate, 44100.0); }
     juce::int64 getLengthSamples() const{ return (juce::int64) tree.getProperty (id::lengthSamples, 0); }
     float getGain() const               { return (float) tree.getProperty (id::gain, 1.0f); }
+    // One-knob tone control: -1 = high-pass (carve lows) .. 0 = off .. +1 = low-pass.
+    float getFilterCarve() const        { return (float) tree.getProperty (id::filterCarve, 0.0f); }
 
     void setName (const juce::String& n, juce::UndoManager* um) { tree.setProperty (id::name, n, um); }
+    void setFilterCarve (float c, juce::UndoManager* um) { tree.setProperty (id::filterCarve, juce::jlimit (-1.0f, 1.0f, c), um); }
 
     // ---- chops ----------------------------------------------------------
     juce::ValueTree getChopsTree() const { return tree.getChildWithName (id::CHOPS); }
@@ -112,6 +115,22 @@ public:
         std::vector<juce::int64> starts;
         for (int i = 0; i < n; ++i)
             starts.push_back (len * i / n);
+        setChopStarts (starts, um);
+    }
+
+    // Slice on a musical grid at 'bpm': a chop every 'beatsPerSlice' quarter
+    // notes (0.25 = 1/16, 0.5 = 1/8, 1 = beat, 4 = bar). Capped so a tiny grid
+    // on a long sample can't create thousands of chops.
+    void sliceByBeats (double bpm, double sr, double beatsPerSlice, juce::UndoManager* um)
+    {
+        const auto len = getLengthSamples();
+        if (len <= 0 || bpm <= 0.0 || sr <= 0.0 || beatsPerSlice <= 0.0) return;
+        const double interval = (60.0 / bpm) * sr * beatsPerSlice;
+        if (interval < 1.0) return;
+
+        std::vector<juce::int64> starts;
+        for (double s = 0.0; s < (double) len && starts.size() < 512; s += interval)
+            starts.push_back ((juce::int64) s);
         setChopStarts (starts, um);
     }
 

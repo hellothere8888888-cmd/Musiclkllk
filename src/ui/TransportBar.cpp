@@ -5,9 +5,9 @@ namespace pablo
 {
 using namespace theme;
 
-TransportBar::TransportBar (SessionState& s, Recorder& r,
+TransportBar::TransportBar (SessionState& s, Recorder& r, SamplerEngine& e,
                             juce::AudioProcessorValueTreeState& apvts)
-    : session (s), recorder (r)
+    : session (s), recorder (r), engine (e)
 {
     loadButton.setTooltip ("Load a sample into a new track (or drop a file anywhere)");
     loadButton.onClick = [this] { if (onLoadRequested) onLoadRequested(); };
@@ -65,13 +65,23 @@ void TransportBar::showChopMenu()
         equal.addItem (100 + n, juce::String (n) + " slices");
 
     juce::PopupMenu transients;
-    transients.addItem (201, "Few chops (big hits only)");
-    transients.addItem (202, "Normal");
-    transients.addItem (203, "Many chops (sensitive)");
+    transients.addItem (201, "Very few (biggest hits)");
+    transients.addItem (202, "Few");
+    transients.addItem (203, "Normal");
+    transients.addItem (204, "Many");
+    transients.addItem (205, "Most (very sensitive)");
+
+    const double bpm = engine.getHostBpm();
+    juce::PopupMenu grid;
+    grid.addItem (401, "Per bar");
+    grid.addItem (402, "Per beat (1/4)");
+    grid.addItem (403, "1/8");
+    grid.addItem (404, "1/16");
 
     juce::PopupMenu menu;
-    menu.addSubMenu ("Equal slices", equal);
+    menu.addSubMenu ("Slice to grid  (@ " + juce::String (bpm, 1) + " BPM)", grid);
     menu.addSubMenu ("Detect transients", transients);
+    menu.addSubMenu ("Equal slices", equal);
     menu.addSeparator();
     menu.addItem (300, "Clear chops (one big slice)");
 
@@ -93,11 +103,19 @@ void TransportBar::showChopMenu()
         {
             track.equalSlices (result - 100, &um);
         }
-        else if (result >= 201 && result <= 203)
+        else if (result >= 201 && result <= 205)
         {
-            const float sensitivity = result == 201 ? 0.2f : result == 202 ? 0.5f : 0.85f;
+            const float sensitivity = 0.15f + 0.2f * (float) (result - 201);   // 0.15 .. 0.95
             auto onsets = detectTransients (*buffer, track.getSampleRate(), sensitivity);
             track.setChopStarts (onsets, &um);
+        }
+        else if (result >= 401 && result <= 404)
+        {
+            const double beatsPerSlice = result == 401 ? 4.0     // bar
+                                       : result == 402 ? 1.0     // beat
+                                       : result == 403 ? 0.5     // 1/8
+                                                       : 0.25;   // 1/16
+            track.sliceByBeats (engine.getHostBpm(), track.getSampleRate(), beatsPerSlice, &um);
         }
         else if (result == 300)
         {

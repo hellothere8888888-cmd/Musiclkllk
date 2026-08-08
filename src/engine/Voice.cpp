@@ -4,11 +4,31 @@ namespace pablo
 {
 static constexpr float fadeSeconds = 0.003f;
 
-void Voice::prepare (double hostSampleRate, BufferReleasePool* pool)
+void Voice::prepare (double hostSampleRate, int blockSize, BufferReleasePool* pool)
 {
     hostRate = hostSampleRate;
     releasePool = pool;
     active = false;
+
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = hostSampleRate;
+    spec.maximumBlockSize = (juce::uint32) juce::jmax (1, blockSize);
+    spec.numChannels = 2;
+    filter.prepare (spec);
+    filter.setResonance (0.707f);
+    filterMode = 0;
+}
+
+void Voice::setFilter (int mode, float cutoffHz)
+{
+    filterMode = mode;
+    if (mode != 0)
+    {
+        filter.setType (mode == 1 ? juce::dsp::StateVariableTPTFilterType::lowpass
+                                  : juce::dsp::StateVariableTPTFilterType::highpass);
+        // Keep the cutoff safely below Nyquist for whatever rate we run at.
+        filter.setCutoffFrequency (juce::jlimit (20.0f, (float) (hostRate * 0.49), cutoffHz));
+    }
 }
 
 void Voice::releaseSource()
@@ -52,6 +72,8 @@ void Voice::start (std::shared_ptr<const juce::AudioBuffer<float>> buffer,
     fadeInc = 1.0f / juce::jmax (1.0f, fadeSeconds * (float) hostRate);
     fadingOut = false;
     active = true;
+
+    filter.reset();   // clear filter state so a fresh hit never carries a click
 }
 
 void Voice::release()
@@ -128,7 +150,10 @@ void Voice::render (juce::AudioBuffer<float>& out, int startSample, int numSampl
         for (int ch = 0; ch < outChannels; ++ch)
         {
             const auto* src = source->getReadPointer (juce::jmin (ch, srcChannels - 1));
-            out.addSample (ch, startSample + i, g * interpolate (src, totalLen, pos));
+            float s = g * interpolate (src, totalLen, pos);
+            if (filterMode != 0 && ch < 2)
+                s = filter.processSample (ch, s);
+            out.addSample (ch, startSample + i, s);
         }
 
         pos += reverse ? -step : step;

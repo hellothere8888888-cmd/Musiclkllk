@@ -25,6 +25,8 @@ struct TrackPlayInfo
     std::shared_ptr<const juce::AudioBuffer<float>> buffer;
     double sourceSampleRate = 44100.0;
     float  gain = 1.0f;
+    int    filterMode = 0;          // 0 = off, 1 = low-pass, 2 = high-pass
+    float  filterCutoff = 20000.0f; // Hz
     std::vector<ChopPlayInfo> chops;
 };
 

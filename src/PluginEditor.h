@@ -46,7 +46,7 @@ private:
     StemSplitOverlay stemOverlay;
     KeyboardHandler keyboardHandler;
 
-    juce::Slider masterGainSlider, globalPitchSlider, swingSlider;
+    juce::Slider masterGainSlider, globalPitchSlider, swingSlider, filterSlider;
     juce::ComboBox gridBox;
     juce::TextButton quantButton { "QUANT" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterGainAttachment,

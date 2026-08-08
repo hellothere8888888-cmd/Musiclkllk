@@ -25,6 +25,7 @@ PABLO_DECLARE_ID (sampleRate)
 PABLO_DECLARE_ID (lengthSamples)
 PABLO_DECLARE_ID (gain)
 PABLO_DECLARE_ID (embedAudio)
+PABLO_DECLARE_ID (filterCarve)   // -1 = high-pass (cut lows) .. 0 = off .. +1 = low-pass (cut highs)
 
 // AUDIO properties (embedded FLAC copy so FL projects survive moved files)
 PABLO_DECLARE_ID (flacBase64)

@@ -8,14 +8,23 @@ SamplerEngine::SamplerEngine()
     voices.resize (maxVoices);
 }
 
-void SamplerEngine::prepare (double sampleRate, int)
+void SamplerEngine::prepare (double sampleRate, int blockSize)
 {
     hostRate = sampleRate;
     for (auto& v : voices)
-        v.prepare (sampleRate, &releasePool);
+        v.prepare (sampleRate, blockSize, &releasePool);
     masterGain.reset (sampleRate, 0.02);
     scheduledCount = 0;
     sampleClock = 0;
+}
+
+void SamplerEngine::applyTrackFilter (Voice& v, const EngineSnapshot& snap)
+{
+    const int t = v.getTrackIndex();
+    if (t >= 0 && t < (int) snap.tracks.size())
+        v.setFilter (snap.tracks[(size_t) t].filterMode, snap.tracks[(size_t) t].filterCutoff);
+    else
+        v.setFilter (0, 20000.0f);
 }
 
 void SamplerEngine::triggerFromUI (int track, int chop, bool on)
@@ -86,6 +95,7 @@ void SamplerEngine::startChop (const EngineSnapshot& snap, int track, int chop,
     const float velGain = 1.0f - c.velSens * (1.0f - vel);
     free->start (t.buffer, t.sourceSampleRate, c,
                  c.pitchSemis + params.globalPitch, t.gain * velGain, track, chop);
+    free->setFilter (t.filterMode, t.filterCutoff);
     voiceAges[free - voices.data()] = ++ageCounter;
 
     const auto scope = flashFifo.write (1);
@@ -113,6 +123,12 @@ void SamplerEngine::process (juce::AudioBuffer<float>& out, const juce::MidiBuff
     const int numSamples = out.getNumSamples();
     const juce::uint64 clockStart = sampleClock;
     const juce::uint64 clockEnd   = clockStart + (juce::uint64) numSamples;
+
+    // Live-track the carve filter for already-sounding voices so turning the
+    // knob sweeps sustained hits too (cheap coefficient recompute).
+    for (auto& v : voices)
+        if (v.isActive())
+            applyTrackFilter (v, *snap);
 
     // Groove only while the transport is rolling: a frozen grid (host stopped)
     // would misplace live/auditioned notes. Stopped notes fire sample-accurately.
@@ -197,9 +213,32 @@ void SamplerEngine::process (juce::AudioBuffer<float>& out, const juce::MidiBuff
     if (cursor < numSamples)
         renderVoices (out, cursor, numSamples - cursor);
 
+    // Publish read positions for the UI playheads (relaxed: display only).
+    for (int i = 0; i < maxVoices; ++i)
+    {
+        if (voices[(size_t) i].isActive())
+        {
+            voicePositions[i].track.store (voices[(size_t) i].getTrackIndex(), std::memory_order_relaxed);
+            voicePositions[i].pos.store ((float) voices[(size_t) i].getSourcePosition(), std::memory_order_relaxed);
+        }
+        else
+        {
+            voicePositions[i].track.store (-1, std::memory_order_relaxed);
+        }
+    }
+
     sampleClock = clockEnd;
 
     masterGain.setTargetValue (juce::Decibels::decibelsToGain (params.masterGainDb));
     masterGain.applyGain (out, numSamples);
+}
+
+int SamplerEngine::getActiveVoicePositions (int trackIndex, float* outPositions, int maxOut) const
+{
+    int n = 0;
+    for (int i = 0; i < maxVoices && n < maxOut; ++i)
+        if (voicePositions[i].track.load (std::memory_order_relaxed) == trackIndex)
+            outPositions[n++] = voicePositions[i].pos.load (std::memory_order_relaxed);
+    return n;
 }
 } // namespace pablo
