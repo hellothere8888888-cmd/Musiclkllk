@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "engine/GrooveTiming.h"
 
 namespace pablo
 {
@@ -14,6 +15,9 @@ PabloAudioProcessor::PabloAudioProcessor()
     chokeParam       = apvts.getRawParameterValue (params::choke);
     gateParam        = apvts.getRawParameterValue (params::gateMode);
     baseNoteParam    = apvts.getRawParameterValue (params::baseNote);
+    swingParam       = apvts.getRawParameterValue (params::swing);
+    quantizeParam    = apvts.getRawParameterValue (params::quantize);
+    gridParam        = apvts.getRawParameterValue (params::grid);
 
     recorder.onRecordingFinished = [this] (std::unique_ptr<juce::AudioBuffer<float>> buffer, double sr)
     {
@@ -64,13 +68,33 @@ void PabloAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
     buffer.clear();
 
     SamplerEngine::Params p;
-    p.masterGainDb = masterGainParam->load();
-    p.globalPitch  = globalPitchParam->load();
-    p.choke        = chokeParam->load() > 0.5f;
-    p.gate         = gateParam->load() > 0.5f;
-    p.baseNote     = (int) baseNoteParam->load();
+    p.masterGainDb   = masterGainParam->load();
+    p.globalPitch    = globalPitchParam->load();
+    p.choke          = chokeParam->load() > 0.5f;
+    p.gate           = gateParam->load() > 0.5f;
+    p.baseNote       = (int) baseNoteParam->load();
+    p.swing          = juce::jlimit (0.0f, 1.0f, swingParam->load() * 0.01f);   // % -> 0..1
+    p.quantize       = quantizeParam->load() > 0.5f;
+    p.gridDivisions  = groove::gridDivisionsForIndex ((int) gridParam->load());
 
-    engine.process (buffer, midi, exchange.acquire(), p);
+    // Read the host transport so swing/quantize can reference the musical grid.
+    SamplerEngine::TransportInfo transport;
+    if (auto* ph = getPlayHead())
+    {
+        if (const auto pos = ph->getPosition())
+        {
+            if (const auto bpm = pos->getBpm())
+                transport.bpm = *bpm;
+            if (const auto ppq = pos->getPpqPosition())
+            {
+                transport.ppqPosition = *ppq;
+                transport.valid = true;
+            }
+            transport.isPlaying = pos->getIsPlaying();
+        }
+    }
+
+    engine.process (buffer, midi, exchange.acquire(), p, transport);
     midi.clear();
 }
 

@@ -1,6 +1,7 @@
 #pragma once
 #include "Voice.h"
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <atomic>
 
 namespace pablo
 {
@@ -18,9 +19,23 @@ public:
         bool  choke = true;
         bool  gate = false;
         int   baseNote = 60;
+        float swing = 0.0f;          // 0..1 (processor scales the 0..100 % param)
+        bool  quantize = false;
+        int   gridDivisions = 16;    // 4/8/16/32
     };
 
-    struct TriggerEvent { int track = -1, chop = -1; bool on = true; };
+    // Host transport read on the audio thread each block. 'valid' is false when
+    // the host provides no musical position (e.g. some offline renders), in
+    // which case grooving is bypassed and notes fire at their raw sample offset.
+    struct TransportInfo
+    {
+        double bpm = 120.0;
+        double ppqPosition = 0.0;    // musical position (quarter notes) at block start
+        bool   isPlaying = false;
+        bool   valid = false;
+    };
+
+    struct TriggerEvent { int track = -1, chop = -1; bool on = true; float velocity = 1.0f; };
 
     SamplerEngine();
 
@@ -31,7 +46,18 @@ public:
 
     // Audio thread.
     void process (juce::AudioBuffer<float>& out, const juce::MidiBuffer& midi,
-                  const EngineSnapshot* snap, const Params& params);
+                  const EngineSnapshot* snap, const Params& params,
+                  TransportInfo transport);
+
+    // Convenience overload for callers with no host transport (tests, offline).
+    void process (juce::AudioBuffer<float>& out, const juce::MidiBuffer& midi,
+                  const EngineSnapshot* snap, const Params& params)
+    {
+        process (out, midi, snap, params, TransportInfo{});
+    }
+
+    // Message thread: last host tempo seen by the audio thread (for the UI).
+    double getHostBpm() const { return hostBpm.load (std::memory_order_relaxed); }
 
     // Message thread: drains chops triggered since last call, for pad flashes.
     // Returns pairs of (track, chop).
@@ -42,13 +68,26 @@ public:
     void reclaimBuffers() { releasePool.reclaim(); }
 
 private:
-    void startChop (const EngineSnapshot& snap, int track, int chop, const Params& params);
+    void startChop (const EngineSnapshot& snap, int track, int chop,
+                    const Params& params, float velocity);
     void stopChop (int track, int chop);
+    void renderVoices (juce::AudioBuffer<float>& out, int startSample, int numSamples);
+
+    // A trigger scheduled to fire at an absolute sample time (sampleClock base).
+    // Swing/quantize can push a trigger into a later block, so these persist.
+    struct ScheduledTrigger { juce::uint64 time = 0; int track = -1, chop = -1; bool on = true; float velocity = 1.0f; };
+    void schedule (juce::uint64 time, int track, int chop, bool on, float velocity);
 
     static constexpr int maxVoices = 32;
     std::vector<Voice> voices;
     juce::uint64 voiceAges[maxVoices] = {};
     juce::uint64 ageCounter = 0;
+
+    static constexpr int maxScheduled = 256;
+    ScheduledTrigger scheduled[maxScheduled];
+    int scheduledCount = 0;
+    juce::uint64 sampleClock = 0;
+    std::atomic<double> hostBpm { 120.0 };
 
     juce::AbstractFifo uiFifo { 256 };
     TriggerEvent uiEvents[256];

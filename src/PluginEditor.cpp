@@ -33,11 +33,28 @@ PabloAudioEditor::PabloAudioEditor (PabloAudioProcessor& p)
     };
     setupRotary (masterGainSlider, " dB");
     setupRotary (globalPitchSlider, " st");
+    setupRotary (swingSlider, " %");
     globalPitchSlider.setTooltip ("Global pitch: shifts every chop on every track");
+    swingSlider.setTooltip ("Swing: lays the off-beat 16ths back off the grid — the MPC / Dilla groove");
     masterGainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         processor.apvts, params::masterGain, masterGainSlider);
     globalPitchAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
         processor.apvts, params::globalPitch, globalPitchSlider);
+    swingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+        processor.apvts, params::swing, swingSlider);
+
+    // Groove grid (feeds both swing and quantize) + quantize toggle.
+    gridBox.addItemList ({ "1/4", "1/8", "1/16", "1/32" }, 1);
+    gridBox.setTooltip ("Groove grid used by swing and quantize");
+    addAndMakeVisible (gridBox);
+    gridAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (
+        processor.apvts, params::grid, gridBox);
+
+    quantButton.setClickingTogglesState (true);
+    quantButton.setTooltip ("Quantize: snap incoming notes to the grid (off = keep your raw finger timing)");
+    addAndMakeVisible (quantButton);
+    quantAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        processor.apvts, params::quantize, quantButton);
 
     processor.session.onSessionChanged = [this] { refreshAll(); };
 
@@ -130,6 +147,10 @@ void PabloAudioEditor::paint (juce::Graphics& g)
                 juce::Justification::centred);
     g.drawText ("PITCH ALL", globalPitchSlider.getBounds().translated (0, -12).removeFromTop (12),
                 juce::Justification::centred);
+    g.drawText ("SWING", swingSlider.getBounds().translated (0, -12).removeFromTop (12),
+                juce::Justification::centred);
+    g.drawText ("GRID", juce::Rectangle<int> (gridBox.getX(), gridBox.getY() - 12, gridBox.getWidth(), 12),
+                juce::Justification::centred);
 }
 
 void PabloAudioEditor::resized()
@@ -137,10 +158,15 @@ void PabloAudioEditor::resized()
     auto area = getLocalBounds();
 
     auto header = area.removeFromTop (58);
-    auto knobs = header.removeFromRight (170).reduced (0, 2);
+    auto knobs = header.removeFromRight (330).reduced (0, 2);
     knobs.removeFromTop (10);
-    masterGainSlider.setBounds (knobs.removeFromLeft (80));
-    globalPitchSlider.setBounds (knobs.removeFromLeft (80));
+    masterGainSlider.setBounds (knobs.removeFromLeft (76));
+    globalPitchSlider.setBounds (knobs.removeFromLeft (76));
+    swingSlider.setBounds (knobs.removeFromLeft (76));
+    auto grooveCol = knobs.reduced (4, 0);
+    quantButton.setBounds (grooveCol.removeFromBottom (20));
+    grooveCol.removeFromBottom (3);
+    gridBox.setBounds (grooveCol.removeFromBottom (20));
 
     transport.setBounds (area.removeFromBottom (44).reduced (10, 3));
 
@@ -150,7 +176,7 @@ void PabloAudioEditor::resized()
     auto right = main.removeFromRight (juce::jmin (300, main.getWidth() / 3));
     padGrid.setBounds (right.reduced (4, 0).withTrimmedLeft (6));
 
-    chopInspector.setBounds (main.removeFromBottom (100).reduced (0, 4));
+    chopInspector.setBounds (main.removeFromBottom (128).reduced (0, 4));
     waveform.setBounds (main);
     stemOverlay.setBounds (waveform.getBounds());
 }

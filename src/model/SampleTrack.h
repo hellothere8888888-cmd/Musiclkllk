@@ -41,9 +41,12 @@ public:
 
     float getChopPitch (int i) const   { return (float) getChop (i).getProperty (id::pitchSemis, 0.0f); }
     bool  getChopReverse (int i) const { return (bool) getChop (i).getProperty (id::reverse, false); }
+    // How strongly this chop responds to MIDI velocity (1 = full, 0 = ignore).
+    float getChopVelSens (int i) const { return (float) getChop (i).getProperty (id::velSens, 1.0f); }
 
     void setChopPitch (int i, float semis, juce::UndoManager* um)  { getChop (i).setProperty (id::pitchSemis, semis, um); }
     void setChopReverse (int i, bool rev, juce::UndoManager* um)   { getChop (i).setProperty (id::reverse, rev, um); }
+    void setChopVelSens (int i, float s, juce::UndoManager* um)    { getChop (i).setProperty (id::velSens, juce::jlimit (0.0f, 1.0f, s), um); }
 
     int findChopContaining (juce::int64 sample) const
     {

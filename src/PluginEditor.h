@@ -46,9 +46,14 @@ private:
     StemSplitOverlay stemOverlay;
     KeyboardHandler keyboardHandler;
 
-    juce::Slider masterGainSlider, globalPitchSlider;
+    juce::Slider masterGainSlider, globalPitchSlider, swingSlider;
+    juce::ComboBox gridBox;
+    juce::TextButton quantButton { "QUANT" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> masterGainAttachment,
-                                                                          globalPitchAttachment;
+                                                                          globalPitchAttachment,
+                                                                          swingAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> gridAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   quantAttachment;
     juce::TooltipWindow tooltips { this, 600 };
     std::unique_ptr<juce::FileChooser> fileChooser;
     bool downloading = false;

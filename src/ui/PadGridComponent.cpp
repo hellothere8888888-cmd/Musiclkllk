@@ -74,22 +74,30 @@ void PadGridComponent::paint (juce::Graphics& g)
     for (int i = 0; i < 16; ++i)
     {
         const int chop = page * 16 + i;
-        const auto r = padBounds (i).reduced (3.0f);
-        const bool exists = chop < numChops;
+        const bool padExists = chop < numChops;
+        const float glow = (padExists && flash[chop] > 0.0f) ? flash[chop] : 0.0f;
+        // A struck pad pops outward slightly and brightens — "it's alive".
+        const auto r = padBounds (i).reduced (3.0f - glow * 2.0f);
 
         g.setColour (ink);
         g.fillRect (r.translated (2.0f, 2.0f));
-        auto fill = exists ? pink : pink.withAlpha (0.35f);
-        if (exists && flash[chop] > 0.0f)
-            fill = fill.interpolatedWith (cream, flash[chop]);
+        auto fill = padExists ? pink : pink.withAlpha (0.35f);
+        if (glow > 0.0f)
+            fill = fill.interpolatedWith (cream.brighter (0.4f), juce::jmin (1.0f, glow * 1.2f));
         if (chop == heldPad)
             fill = ink;
         g.setColour (fill);
         g.fillRect (r);
+        if (glow > 0.0f)
+        {
+            // A brief bright rim on trigger.
+            g.setColour (cream.withAlpha (glow * 0.8f));
+            g.drawRect (r, 1.0f + glow * 2.0f);
+        }
         g.setColour (ink);
         g.drawRect (r, 1.2f);
 
-        if (exists)
+        if (padExists)
         {
             g.setColour (chop == heldPad ? cream : ink);
             g.setFont (markerFont (juce::jmin (20.0f, r.getHeight() * 0.42f)));

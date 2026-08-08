@@ -58,6 +58,9 @@ private:
     std::atomic<float>* chokeParam = nullptr;
     std::atomic<float>* gateParam = nullptr;
     std::atomic<float>* baseNoteParam = nullptr;
+    std::atomic<float>* swingParam = nullptr;
+    std::atomic<float>* quantizeParam = nullptr;
+    std::atomic<float>* gridParam = nullptr;
     int recordingCounter = 0;
 
     JUCE_DECLARE_WEAK_REFERENCEABLE (PabloAudioProcessor)

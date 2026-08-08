@@ -15,6 +15,7 @@ struct ChopPlayInfo
     juce::int64 end   = 0;      // exclusive
     float pitchSemis  = 0.0f;
     bool  reverse     = false;
+    float velSens     = 1.0f;   // MIDI-velocity sensitivity (1 = full, 0 = ignore)
 };
 
 struct TrackPlayInfo

@@ -156,6 +156,7 @@ std::unique_ptr<EngineSnapshot> SessionState::buildSnapshot() const
             chop.end   = juce::jlimit<juce::int64> (chop.start, len, track.getChopEnd (c));
             chop.pitchSemis = track.getChopPitch (c);
             chop.reverse = track.getChopReverse (c);
+            chop.velSens = track.getChopVelSens (c);
             info.chops.push_back (chop);
         }
         snap->tracks.push_back (std::move (info));

@@ -24,6 +24,14 @@ into stems (drums / bass / other / vocals) with an on-device AI model.
   - **Per-chop pitch** (±24 semitones), **per-chop reverse**, and a **PITCH
     ALL** button that copies the selected chop's pitch to every chop.
   - A separate **global pitch** knob shifts every chop on every track at once.
+- **Groove** — a **SWING** knob lays the off-beat 16ths back off the grid (the
+  MPC / Dilla feel), with a **GRID** selector (1/4 … 1/32) and a **QUANT**
+  toggle that snaps incoming notes to the grid or leaves your raw finger timing
+  alone. Swing and quantize follow the host tempo and only engage while the
+  transport is rolling, so notes stay sample-accurate when you're jamming.
+- **Velocity-sensitive pads** — chops respond to MIDI note velocity for ghost
+  notes and dynamics instead of every hit at full volume; a per-chop **VEL**
+  amount sets how strongly each chop tracks velocity (0 = always full).
 - **Play chops from your laptop keyboard** — the bottom rows act like MPC pads
   (`Z X C V B N M ,` = chops 1-8, `A S D F G H J K` = 9-16, and so on). Inside
   FL Studio the typing keyboard also drives it as MIDI, so it always works.

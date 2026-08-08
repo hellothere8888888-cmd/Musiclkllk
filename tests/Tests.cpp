@@ -8,11 +8,13 @@
 #include "model/SessionState.h"
 #include "model/EngineSnapshot.h"
 #include "engine/SamplerEngine.h"
+#include "engine/GrooveTiming.h"
 #include "dsp/TransientDetector.h"
 #include "dsp/Resampler.h"
 #include "stems/StemSeparator.h"
 
 #include <cstdio>
+#include <cmath>
 
 namespace
 {
@@ -335,6 +337,158 @@ void testEnginePlayback()
     }
 }
 
+// ---- groove timing (swing + quantize) -----------------------------------
+void testGrooveTiming()
+{
+    std::printf ("testGrooveTiming\n");
+    using namespace pablo;
+
+    const double sr = 44100.0, bpm = 120.0;
+    const double spq = 60.0 / bpm * sr;               // 22050 samples / quarter
+    const int cap = 1'000'000;
+
+    // Grid index -> divisions.
+    CHECK (groove::gridDivisionsForIndex (0) == 4);
+    CHECK (groove::gridDivisionsForIndex (1) == 8);
+    CHECK (groove::gridDivisionsForIndex (2) == 16);
+    CHECK (groove::gridDivisionsForIndex (3) == 32);
+
+    // Straight (no swing, no quantize) returns the arrival offset unchanged.
+    CHECK (groove::applyGroove (100, 0.0, bpm, sr, 0.0f, false, 16, cap) == 100);
+
+    // Invalid tempo bypasses grooving entirely.
+    CHECK (groove::applyGroove (77, 0.0, 0.0, sr, 1.0f, true, 16, cap) == 77);
+
+    // Quantize snaps a note near the downbeat back onto the grid line at 0.
+    CHECK (groove::applyGroove (200, 0.0, bpm, sr, 0.0f, true, 16, cap) == 0);
+
+    // Quantize snaps a note near the first 1/16 (5512.5 samples) onto it.
+    {
+        const int off = groove::applyGroove (5000, 0.0, bpm, sr, 0.0f, true, 16, cap);
+        CHECK (std::abs (off - (int) std::llround (0.25 * spq)) <= 1);
+    }
+
+    // Swing delays the odd (off-beat) 1/16 cell; full swing adds 0.5*step.
+    {
+        const int straight = groove::applyGroove (5000, 0.0, bpm, sr, 0.0f, true, 16, cap);
+        const int swung    = groove::applyGroove (5000, 0.0, bpm, sr, 1.0f, true, 16, cap);
+        const int expected = (int) std::llround ((0.25 + 0.5 * 0.25) * spq);
+        CHECK (swung > straight);
+        CHECK (std::abs (swung - expected) <= 1);
+    }
+
+    // Even (on-beat) cells are left alone by swing.
+    {
+        const int even = groove::applyGroove (11000, 0.0, bpm, sr, 1.0f, true, 16, cap);
+        CHECK (std::abs (even - (int) std::llround (0.5 * spq)) <= 1);
+    }
+
+    // The clamp ceiling is honoured.
+    CHECK (groove::applyGroove (5000, 0.0, bpm, sr, 1.0f, true, 16, 512) == 512);
+}
+
+// ---- velocity response + swing scheduler carry-over ---------------------
+void testVelocityAndScheduler()
+{
+    std::printf ("testVelocityAndScheduler\n");
+    using namespace pablo;
+
+    const int len = 4096;
+    auto buffer = std::make_shared<juce::AudioBuffer<float>> (2, len);
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        auto* w = buffer->getWritePointer (ch);
+        for (int i = 0; i < len; ++i)
+            w[i] = 0.7f * std::sin (juce::MathConstants<float>::twoPi * 200.0f * (float) i / 44100.0f);
+    }
+
+    auto makeSnap = [&] (float velSens)
+    {
+        auto snap = std::make_unique<EngineSnapshot>();
+        TrackPlayInfo t;
+        t.buffer = buffer;
+        t.sourceSampleRate = 44100.0;
+        t.gain = 1.0f;
+        ChopPlayInfo c;
+        c.start = 0; c.end = len; c.velSens = velSens;
+        t.chops.push_back (c);
+        snap->tracks.push_back (std::move (t));
+        snap->activeTrack = 0;
+        return snap;
+    };
+
+    // Trigger chop 0 via a MIDI note (baseNote 60) at a given velocity; no host
+    // transport, so it fires immediately.
+    auto midiMag = [] (float velSens, float velocity, std::shared_ptr<juce::AudioBuffer<float>> buf, int len_)
+    {
+        SnapshotExchange ex;
+        {
+            auto snap = std::make_unique<EngineSnapshot>();
+            TrackPlayInfo t; t.buffer = buf; t.sourceSampleRate = 44100.0; t.gain = 1.0f;
+            ChopPlayInfo c; c.start = 0; c.end = len_; c.velSens = velSens; t.chops.push_back (c);
+            snap->tracks.push_back (std::move (t)); snap->activeTrack = 0;
+            ex.publish (std::move (snap));
+        }
+        SamplerEngine engine; engine.prepare (44100.0, 512);
+        SamplerEngine::Params p; p.baseNote = 60;
+        juce::AudioBuffer<float> out (2, 512);
+        float mag = 0.0f;
+        for (int block = 0; block < 4; ++block)
+        {
+            out.clear();
+            juce::MidiBuffer midi;
+            if (block == 0) midi.addEvent (juce::MidiMessage::noteOn (1, 60, velocity), 0);
+            engine.process (out, midi, ex.acquire(), p);
+            mag = juce::jmax (mag, out.getMagnitude (0, out.getNumSamples()));
+        }
+        return mag;
+    };
+
+    // Full sensitivity: a soft hit is clearly quieter than a hard hit.
+    {
+        const float hard = midiMag (1.0f, 1.0f, buffer, len);
+        const float soft = midiMag (1.0f, 0.25f, buffer, len);
+        CHECK (hard > 0.1f);
+        CHECK (soft < hard * 0.6f);
+    }
+
+    // Zero sensitivity: velocity is ignored, soft == hard.
+    {
+        const float hard = midiMag (0.0f, 1.0f, buffer, len);
+        const float soft = midiMag (0.0f, 0.25f, buffer, len);
+        CHECK (std::abs (hard - soft) < 0.02f);
+    }
+
+    // Swing defers an off-beat note past the block boundary; the scheduler must
+    // carry it and fire it in a later block.
+    {
+        SnapshotExchange ex; ex.publish (makeSnap (1.0f));
+        SamplerEngine engine; engine.prepare (44100.0, 512);
+        SamplerEngine::Params p; p.baseNote = 60; p.swing = 1.0f; p.gridDivisions = 16;
+        SamplerEngine::TransportInfo tr; tr.bpm = 120.0; tr.valid = true; tr.isPlaying = true; tr.ppqPosition = 0.25;
+
+        juce::AudioBuffer<float> out (2, 512);
+        juce::MidiBuffer midi; midi.addEvent (juce::MidiMessage::noteOn (1, 60, 1.0f), 0);
+        out.clear();
+        engine.process (out, midi, ex.acquire(), p, tr);
+        CHECK (engine.drainFlashes().empty());        // deferred, not fired in block 0
+
+        const double blockPpq = 512.0 / (60.0 / 120.0 * 44100.0);
+        bool fired = false;
+        for (int block = 1; block < 16 && ! fired; ++block)
+        {
+            out.clear();
+            juce::MidiBuffer empty;
+            SamplerEngine::TransportInfo tr2 = tr;
+            tr2.ppqPosition = 0.25 + block * blockPpq;
+            engine.process (out, empty, ex.acquire(), p, tr2);
+            if (! engine.drainFlashes().empty())
+                fired = true;
+        }
+        CHECK (fired);
+    }
+}
+
 // ---- track removal keeps the right track active -------------------------
 void testRemoveTrackActiveIndex()
 {
@@ -467,6 +621,8 @@ int main()
     testOverlapAddWeighting();
     testSnapshotExchange();
     testEnginePlayback();
+    testGrooveTiming();
+    testVelocityAndScheduler();
     testRemoveTrackActiveIndex();
     testRestoreClearsStore();
     testSessionRoundTrip();

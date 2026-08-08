@@ -35,6 +35,7 @@ PABLO_DECLARE_ID (flacBase64)
 PABLO_DECLARE_ID (startSample)
 PABLO_DECLARE_ID (pitchSemis)
 PABLO_DECLARE_ID (reverse)
+PABLO_DECLARE_ID (velSens)   // 0 = ignore MIDI velocity .. 1 = full dynamic range
 
 #undef PABLO_DECLARE_ID
 } // namespace pablo::id
