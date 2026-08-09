@@ -99,6 +99,43 @@ void testChopMath()
     CHECK (track.getNumChops() == before - 1);
 }
 
+// ---- overlapping / free regions ----------------------------------------
+void testOverlappingChops()
+{
+    std::printf ("testOverlappingChops\n");
+    using namespace pablo;
+
+    SampleTrack track (makeTrackTree (10000));
+    track.equalSlices (4, nullptr);                 // [0,2500)[2500,5000)[5000,7500)[7500,10000)
+    CHECK (track.getNumChops() == 4);
+
+    // A free region that overlaps chops 0 and 1 becomes its own pad without
+    // disturbing the existing tiling.
+    const int r = track.addChopRange (1000, 4000, nullptr);
+    CHECK (r == 1);                                 // sorts after chop starting at 0
+    CHECK (track.getNumChops() == 5);
+    CHECK (track.getChopStart (r) == 1000);
+    CHECK (track.getChopEnd (r) == 4000);           // explicit end -> may overlap
+    CHECK (track.getChopStart (0) == 0);
+    CHECK (track.getChopEnd (0) == 2500);           // neighbour untouched (frozen)
+    CHECK (track.getChopEnd (2) == 5000);           // the old chop 1 is now index 2
+
+    // Its edges are independent of the tiling neighbour: moving its start does
+    // not drag chop 0's end (they aren't a shared boundary).
+    track.moveChopStart (r, 500, nullptr);
+    CHECK (track.getChopStart (r) == 500);
+    CHECK (track.getChopEnd (0) == 2500);
+
+    // Clamped to at least one sample inside its own end.
+    track.moveChopStart (r, 999999, nullptr);
+    CHECK (track.getChopStart (r) == track.getChopEnd (r) - 1);
+
+    // Re-slicing wipes free regions back to a clean grid.
+    track.equalSlices (2, nullptr);
+    CHECK (track.getNumChops() == 2);
+    CHECK (track.getChopEnd (0) == 5000);
+}
+
 // ---- transient detection ------------------------------------------------
 void testTransientDetector()
 {
@@ -735,6 +772,7 @@ int main()
 
     std::printf ("PABLO unit tests\n");
     testChopMath();
+    testOverlappingChops();
     testTransientDetector();
     testResampler();
     testOverlapAddWeighting();

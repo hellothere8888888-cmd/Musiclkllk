@@ -70,11 +70,12 @@ private:
     double spp = 1.0;                     // samples per pixel
     int selectedChop = 0;
 
-    enum class Drag { none, marker, pan, overview };
+    enum class Drag { none, marker, pan, overview, region };
     Drag dragMode = Drag::none;
     int dragMarkerIndex = -1;
     double dragAnchorViewStart = 0.0;
     juce::Point<float> dragAnchorPos;
+    double regionAnchor = 0.0, regionCurrent = 0.0;   // shift-drag selection, in samples
 
     static constexpr int overviewHeight = 26;
     static constexpr int markerHitDistance = 6;

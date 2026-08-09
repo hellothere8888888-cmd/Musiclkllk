@@ -301,6 +301,20 @@ void WaveformView::paint (juce::Graphics& g)
         }
     }
 
+    // Live region selection (shift-drag -> new pad).
+    if (dragMode == Drag::region)
+    {
+        const float rx0 = sampleToX (juce::jmin (regionAnchor, regionCurrent));
+        const float rx1 = sampleToX (juce::jmax (regionAnchor, regionCurrent));
+        juce::Rectangle<float> sel (juce::jmax (rx0, (float) area.getX()), (float) area.getY(),
+                                    juce::jmin (rx1, (float) area.getRight()) - juce::jmax (rx0, (float) area.getX()),
+                                    (float) area.getHeight());
+        g.setColour (ink.withAlpha (0.25f));
+        g.fillRect (sel);
+        g.setColour (ink);
+        g.drawRect (sel, 1.4f);
+    }
+
     // Overview strip.
     const auto ov = overviewArea();
     g.setColour (creamDim);
@@ -350,6 +364,16 @@ void WaveformView::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
+    // Shift-drag selects a region of the sample and turns it into a new pad,
+    // even over audio that another chop already covers.
+    if (e.mods.isShiftDown() && waveArea().contains (e.position.toInt()))
+    {
+        dragMode = Drag::region;
+        regionAnchor = regionCurrent = xToSample (e.position.x);
+        repaint();
+        return;
+    }
+
     const int marker = hitTestMarker (e.position);
     if (marker > 0)   // chop 0's start stays put; slices always begin somewhere
     {
@@ -380,6 +404,11 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
             }
             break;
 
+        case Drag::region:
+            regionCurrent = xToSample (e.position.x);
+            repaint();
+            break;
+
         case Drag::pan:
             viewStart = dragAnchorViewStart - (double) (e.position.x - dragAnchorPos.x) * spp;
             clampView();
@@ -404,6 +433,26 @@ void WaveformView::mouseDrag (const juce::MouseEvent& e)
 
 void WaveformView::mouseUp (const juce::MouseEvent& e)
 {
+    if (dragMode == Drag::region && track.isValid())
+    {
+        const auto a = (juce::int64) juce::jmin (regionAnchor, regionCurrent);
+        const auto b = (juce::int64) juce::jmax (regionAnchor, regionCurrent);
+        if (b - a > 8)   // ignore an accidental shift-click
+        {
+            session.getUndoManager().beginNewTransaction ("New pad from selection");
+            const int added = track.addChopRange (a, b, &session.getUndoManager());
+            if (added >= 0)
+            {
+                selectedChop = added;
+                if (onChopSelected) onChopSelected (added);
+                engine.triggerFromUI (-1, added, true);
+            }
+        }
+        dragMode = Drag::none;
+        repaint();
+        return;
+    }
+
     if (dragMode == Drag::pan && e.mouseWasClicked() && buffer != nullptr && track.isValid())
     {
         // Plain click: select + audition the slice under the cursor.

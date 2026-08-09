@@ -24,9 +24,12 @@ private:
     int selectedChop = 0;
     bool updating = false;
 
+    void exportChop();
+
     juce::Slider pitchSlider, volumeSlider, velSlider, stretchSlider;
     juce::TextButton reverseButton { "REVERSE" }, playButton { "PLAY" },
-                     applyAllButton { "PITCH ALL" };
+                     saveButton { "SAVE WAV" }, applyAllButton { "PITCH ALL" };
+    std::unique_ptr<juce::FileChooser> chooser;
     juce::Rectangle<int> pitchLabelArea, volLabelArea, velLabelArea, stretchLabelArea;
     bool haveChop = false;
     juce::String sliceInfo;

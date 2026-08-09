@@ -1,4 +1,5 @@
 #include "ChopInspectorPanel.h"
+#include <juce_audio_formats/juce_audio_formats.h>
 
 namespace pablo
 {
@@ -84,6 +85,10 @@ ChopInspectorPanel::ChopInspectorPanel (SessionState& s, SamplerEngine& e) : ses
     playButton.onClick = [this] { engine.triggerFromUI (-1, selectedChop, true); };
     addAndMakeVisible (playButton);
 
+    saveButton.setTooltip ("Export this chop to a .wav file");
+    saveButton.onClick = [this] { exportChop(); };
+    addAndMakeVisible (saveButton);
+
     applyAllButton.setTooltip ("Apply this chop's pitch to every chop on the track");
     applyAllButton.onClick = [this]
     {
@@ -138,6 +143,7 @@ void ChopInspectorPanel::refresh()
     stretchSlider.setVisible (valid);
     reverseButton.setVisible (valid);
     playButton.setVisible (valid);
+    saveButton.setVisible (valid);
     applyAllButton.setVisible (valid);
     repaint();
 }
@@ -206,11 +212,68 @@ void ChopInspectorPanel::resized()
 
     area.removeFromTop (3);
     auto row2 = area.removeFromTop (28);
-    const int bw = (row2.getWidth() - 12) / 3;
+    const int bw = (row2.getWidth() - 18) / 4;
     playButton.setBounds (row2.removeFromLeft (bw));
     row2.removeFromLeft (6);
     reverseButton.setBounds (row2.removeFromLeft (bw));
     row2.removeFromLeft (6);
+    saveButton.setBounds (row2.removeFromLeft (bw));
+    row2.removeFromLeft (6);
     applyAllButton.setBounds (row2);
+}
+
+void ChopInspectorPanel::exportChop()
+{
+    auto track = session.getActiveTrack();
+    if (! track.isValid() || selectedChop < 0 || selectedChop >= track.getNumChops())
+        return;
+
+    auto src = session.getTrackBuffer (track);
+    if (src == nullptr || src->getNumSamples() == 0)
+        return;
+
+    const juce::int64 start = juce::jlimit<juce::int64> (0, src->getNumSamples(), track.getChopStart (selectedChop));
+    const juce::int64 end   = juce::jlimit<juce::int64> (start, src->getNumSamples(), track.getChopEnd (selectedChop));
+    const int n = (int) (end - start);
+    if (n <= 0)
+        return;
+
+    // Render the slice, honouring reverse + per-chop volume (pitch/stretch stay live).
+    const int numCh = juce::jmax (1, src->getNumChannels());
+    auto region = std::make_shared<juce::AudioBuffer<float>> (numCh, n);
+    for (int ch = 0; ch < numCh; ++ch)
+        region->copyFrom (ch, 0, *src, ch, (int) start, n);
+    if (track.getChopReverse (selectedChop))
+        region->reverse (0, n);
+    const float g = track.getChopGain (selectedChop);
+    if (std::abs (g - 1.0f) > 1.0e-4f)
+        region->applyGain (g);
+
+    const double sr = track.getSampleRate() > 0.0 ? track.getSampleRate() : 44100.0;
+    const auto base = juce::File::createLegalFileName (
+        (track.getName().isNotEmpty() ? track.getName() : juce::String ("chop"))
+        + "_chop" + juce::String (selectedChop + 1));
+    const auto suggested = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+                               .getChildFile (base + ".wav");
+
+    chooser = std::make_unique<juce::FileChooser> ("Save chop as WAV", suggested, "*.wav");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+        [region, sr, numCh] (const juce::FileChooser& fc)
+        {
+            const auto file = fc.getResult();
+            if (file == juce::File())
+                return;
+            file.deleteFile();
+            juce::WavAudioFormat wav;
+            if (auto stream = std::unique_ptr<juce::FileOutputStream> (file.createOutputStream()))
+            {
+                if (auto* writer = wav.createWriterFor (stream.get(), sr, (unsigned int) numCh, 24, {}, 0))
+                {
+                    stream.release();   // writer owns the stream now
+                    writer->writeFromAudioSampleBuffer (*region, 0, region->getNumSamples());
+                    delete writer;
+                }
+            }
+        });
 }
 } // namespace pablo
